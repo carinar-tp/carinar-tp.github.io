@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>面談のご予約｜CARINAR</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1d2330; --muted:#6b7280; --line:#e3e6eb;
+          --accent:#1f6feb; --accent-ink:#fff; --err:#c62828; }
+  * { box-sizing:border-box; }
+  [hidden] { display:none !important; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font-family:"Hiragino Sans","Noto Sans JP",system-ui,sans-serif; line-height:1.6; }
+  main { max-width:640px; margin:0 auto; padding:24px 16px 48px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .lead { color:var(--muted); font-size:14px; margin:0 0 20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:12px; }
+  .nav { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:12px; }
+  .nav .range { font-weight:700; font-size:15px; text-align:center; flex:1; }
+  .nav button { border:1px solid var(--line); background:#fff; color:var(--ink); border-radius:8px;
+                width:44px; height:40px; font-size:18px; cursor:pointer; }
+  .nav button:disabled { opacity:.35; cursor:default; }
+  .week { display:grid; grid-template-columns:repeat(5, minmax(0, 1fr)); gap:6px; }
+  .col { min-width:0; }
+  .head { text-align:center; padding:6px 0; border-bottom:1px solid var(--line); margin-bottom:8px; }
+  .head .md { font-size:15px; font-weight:700; }
+  .head .dw { font-size:12px; color:var(--muted); }
+  .sat .dw { color:#1f6feb; } .sun .dw { color:#c62828; }
+  .times { display:flex; flex-direction:column; gap:6px; }
+  .time { border:1px solid var(--line); background:#fff; color:var(--ink); border-radius:8px;
+          padding:7px 0; font-size:14px; cursor:pointer; width:100%; }
+  .time:hover { border-color:var(--accent); color:var(--accent); }
+  .none { text-align:center; color:var(--muted); font-size:13px; padding-top:4px; }
+  .cap { color:var(--muted); font-size:13px; }
+  .picked { font-size:18px; font-weight:700; margin:2px 0 12px; }
+  .seg { display:inline-flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; margin-bottom:16px; }
+  .seg button { border:0; background:#fff; color:var(--ink); padding:8px 18px; font-size:14px; cursor:pointer; }
+  .seg button.on { background:var(--accent); color:var(--accent-ink); }
+  label { display:block; font-size:13px; color:var(--muted); margin-bottom:12px; }
+  .req { display:inline-block; margin-left:6px; padding:0 6px; border-radius:4px; font-size:11px;
+         line-height:18px; background:var(--err); color:#fff; vertical-align:1px; }
+  input { display:block; width:100%; margin-top:4px; padding:10px 12px; border:1px solid var(--line);
+          border-radius:8px; font-size:16px; color:var(--ink); }
+  .row { display:flex; gap:8px; margin-top:8px; }
+  .btn { flex:1; padding:12px; border-radius:8px; font-size:15px; cursor:pointer;
+         border:1px solid var(--accent); background:var(--accent); color:var(--accent-ink); }
+  .btn.ghost { background:#fff; color:var(--ink); border-color:var(--line); }
+  .cal { display:flex; flex-direction:column; gap:8px; margin:16px 0 12px; }
+  .cal .btn { display:block; text-align:center; text-decoration:none; word-break:normal; }
+  .btn:disabled { opacity:.6; cursor:default; }
+  .err { color:var(--err); font-size:14px; min-height:1em; margin:0; }
+  .muted { color:var(--muted); }
+  a { color:var(--accent); word-break:break-all; }
+</style>
+</head>
+<body>
+<main>
+  <h1>面談のご予約</h1>
+  <p class="lead">ご希望の日時を選択してください（オンライン・Google Meet）</p>
+
+  <section id="list"></section>
+
+  <section id="form" hidden>
+    <div class="card">
+      <div class="cap">選択中の日時</div>
+      <div id="picked" class="picked"></div>
+      <div id="seg" class="seg"></div>
+      <form id="f">
+        <label>お名前<span class="req">必須</span><input id="name" required autocomplete="name" maxlength="50" placeholder="山田 太郎"></label>
+        <label>メールアドレス<span class="req">必須</span><input id="email" type="email" required autocomplete="email" maxlength="100" placeholder="example@mail.com"></label>
+        <label>電話番号<span class="req">必須</span><input id="tel" type="tel" required autocomplete="tel" maxlength="20" inputmode="tel" placeholder="09012345678"></label>
+        <p id="err" class="err"></p>
+        <div class="row">
+          <button type="button" id="back" class="btn ghost">日時を選び直す</button>
+          <button type="submit" id="submit" class="btn">この日時で予約する</button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <section id="done" hidden>
+    <div class="card">
+      <h2 style="font-size:18px;margin:0 0 8px">ご予約が完了しました</h2>
+      <p>日時：<strong id="dDate"></strong></p>
+      <p id="dUrlRow">参加URL：<a id="dUrl" target="_blank" rel="noopener"></a></p>
+      <div class="cal">
+        <a id="dGcal" class="btn" target="_blank" rel="noopener">Googleカレンダーに追加</a>
+        <a id="dIcs" class="btn ghost" target="_blank" rel="noopener">その他のカレンダー（iPhone・Outlook）</a>
+      </div>
+      <p class="muted" style="font-size:14px">ご入力のメールアドレスに確認メールをお送りしました。</p>
+    </div>
+  </section>
+</main>
+
+<script>
+  const $ = id => document.getElementById(id);
+  const SUBMIT_LABEL = 'この日時で予約する';
+  const PER_PAGE = 5;
+  let data = null, sel = null, minutes = 0, page = 0;
+
+  function el(tag, cls, text) {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+  function show(id) {
+    ['list', 'form', 'done'].forEach(k => $(k).hidden = k !== id);
+    window.scrollTo(0, 0);
+  }
+  function msg(e) {
+    return String((e && e.message) || e || '').replace(/^(Exception|Error):\s*/, '') || 'エラーが発生しました';
+  }
+
+  // 予約処理を行うGoogle Apps Script（ウェブアプリ）。ログイン情報は送らない（複数アカウントでも開けるように）
+  const API = 'https://script.google.com/macros/s/AKfycbw1NEsqtPaqAUMmJj5N9C0ssaASBXa5qC9yz2leHE0ysIqKKYzryBnV5XnbEeLEt54Ebw/exec';
+  const KEY = (new URLSearchParams(location.search).get('k') || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 40);
+  let INITIAL = null;
+
+  async function api(method, body) {
+    const url = method === 'GET' ? API + '?api=slots&k=' + encodeURIComponent(KEY) + '&_=' + Date.now() : API;
+    const res = await fetch(url, method === 'GET' ? { credentials: 'omit' }
+      : { method: 'POST', credentials: 'omit', body: JSON.stringify(body) });
+    if (!res.ok) throw new Error('通信に失敗しました。時間をおいて再度お試しください');
+    const d = await res.json();
+    if (d.error) throw new Error(d.error);
+    return d;
+  }
+
+  function load() {
+    show('list');
+    if (INITIAL) {
+      const d = INITIAL;
+      INITIAL = null;
+      if (d.closed) { $('list').innerHTML = ''; showClosed(); }
+      else if (d.error) { $('list').innerHTML = ''; $('list').append(el('p', 'err', d.error)); }
+      else render(d);
+      return;
+    }
+    $('list').innerHTML = '';
+    $('list').append(el('p', 'muted', '空き日程を確認しています…'));
+    api('GET')
+      .then(d => { if (d.closed) { $('list').innerHTML = ''; showClosed(); } else render(d); })
+      .catch(e => { $('list').innerHTML = ''; $('list').append(el('p', 'err', msg(e))); });
+  }
+
+  function showClosed() {
+    document.querySelector('.lead').hidden = true;
+    const c = el('div', 'card');
+    c.append(el('p', null, 'このページでのご予約受付は終了しました。'),
+      el('p', 'muted', 'お手数ですが、ご案内元までお問い合わせください。'));
+    $('list').append(c);
+  }
+
+  function render(d) {
+    data = d;
+    // 最初に空きがある日を含むページから表示
+    const first = d.days.findIndex(x => x.slots.length);
+    page = first > 0 ? Math.floor(first / PER_PAGE) : 0;
+    draw();
+  }
+
+  function draw() {
+    const box = $('list');
+    box.innerHTML = '';
+    if (!data.days.some(x => x.slots.length)) {
+      box.append(el('p', 'muted', '現在ご予約いただける日程がありません。'));
+      return;
+    }
+    const pages = Math.ceil(data.days.length / PER_PAGE);
+    const days = data.days.slice(page * PER_PAGE, page * PER_PAGE + PER_PAGE);
+
+    const card = el('div', 'card');
+    const nav = el('div', 'nav');
+    const prev = el('button', null, '←');
+    const next = el('button', null, '→');
+    prev.type = next.type = 'button';
+    prev.setAttribute('aria-label', '前の5日');
+    next.setAttribute('aria-label', '次の5日');
+    prev.disabled = page === 0;
+    next.disabled = page >= pages - 1;
+    prev.onclick = () => { page--; draw(); };
+    next.onclick = () => { page++; draw(); };
+    const range = days.length > 1
+      ? `${days[0].md}(${days[0].dow}) 〜 ${days[days.length - 1].md}(${days[days.length - 1].dow})`
+      : `${days[0].md}(${days[0].dow})`;
+    nav.append(prev, el('div', 'range', range), next);
+    card.append(nav);
+
+    const week = el('div', 'week');
+    days.forEach(day => {
+      const col = el('div', 'col' + (day.dow === '土' ? ' sat' : day.dow === '日' ? ' sun' : ''));
+      const head = el('div', 'head');
+      head.append(el('div', 'md', day.md), el('div', 'dw', day.dow));
+      col.append(head);
+      const t = el('div', 'times');
+      if (!day.slots.length) t.append(el('div', 'none', '－'));
+      day.slots.forEach(s => {
+        const b = el('button', 'time', s.time);
+        b.type = 'button';
+        b.onclick = () => pick(day, s);
+        t.append(b);
+      });
+      col.append(t);
+      week.append(col);
+    });
+    card.append(week);
+    box.append(card);
+  }
+
+  function pick(day, s) {
+    sel = { day, s };
+    minutes = data.base;
+    const seg = $('seg');
+    seg.innerHTML = '';
+    const opts = [data.base].concat(s.ext ? [data.ext] : []);
+    seg.hidden = opts.length < 2;
+    opts.forEach(m => {
+      const b = el('button', m === minutes ? 'on' : '', m + '分');
+      b.type = 'button';
+      b.onclick = () => {
+        minutes = m;
+        [...seg.children].forEach(x => x.classList.toggle('on', x === b));
+        updatePicked();
+      };
+      seg.append(b);
+    });
+    updatePicked();
+    $('err').textContent = '';
+    show('form');
+  }
+
+  function updatePicked() {
+    const [h, m] = sel.s.time.split(':').map(Number);
+    const t = h * 60 + m + minutes;
+    const pad = n => String(n).padStart(2, '0');
+    $('picked').textContent =
+      `${sel.day.label} ${sel.s.time}～${pad(Math.floor(t / 60))}:${pad(t % 60)}（${minutes}分）`;
+  }
+
+  $('f').onsubmit = ev => {
+    ev.preventDefault();
+    const miss = [['name', 'お名前'], ['email', 'メールアドレス'], ['tel', '電話番号']]
+      .filter(([id]) => !$(id).value.trim()).map(([, l]) => l);
+    if (miss.length) { $('err').textContent = miss.join('・') + 'を入力してください'; return; }
+    const btn = $('submit');
+    btn.disabled = true;
+    btn.textContent = '送信中…';
+    $('err').textContent = '';
+    api('POST', {
+      action: 'book',
+      k: KEY,
+      start: sel.s.start,
+      minutes,
+      name: $('name').value.trim(),
+      email: $('email').value.trim(),
+      tel: $('tel').value.trim(),
+    })
+      .then(d => {
+        const r = d.result;
+        btn.disabled = false;
+        btn.textContent = SUBMIT_LABEL;
+        $('dDate').textContent = `${r.date} ${r.time}`;
+        $('dUrlRow').hidden = !r.url;
+        $('dUrl').href = r.url || '#';
+        $('dUrl').textContent = r.url || '';
+        $('dGcal').hidden = !r.gcal;
+        $('dGcal').href = r.gcal || '#';
+        $('dIcs').hidden = !r.icsData;
+        if (r.icsData) {
+          $('dIcs').href = URL.createObjectURL(new Blob([r.icsData], { type: 'text/calendar' }));
+          $('dIcs').setAttribute('download', 'carinar_interview.ics');
+          $('dIcs').removeAttribute('target');
+        }
+        show('done');
+      })
+      .catch(e => {
+        btn.disabled = false;
+        btn.textContent = SUBMIT_LABEL;
+        $('err').textContent = msg(e);
+      });
+  };
+  $('back').onclick = () => { show('list'); draw(); };
+
+  load();
+</script>
+</body>
+</html>
