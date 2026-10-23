@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>ご紹介求人一覧｜CARINAR</title>
+<style>
+  :root { --main: #1a73e8; --bg: #f5f7fa; --card: #fff; --text: #222; --sub: #666; --line: #e3e7ed; }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif; font-size: 15px; line-height: 1.6; }
+  header { background: var(--card); border-bottom: 1px solid var(--line); padding: 20px 16px; }
+  header .in { max-width: 760px; margin: 0 auto; }
+  header h1 { margin: 0; font-size: 20px; }
+  header p { margin: 4px 0 0; color: var(--sub); font-size: 13px; }
+  main { max-width: 760px; margin: 0 auto; padding: 16px; }
+  .lead { color: var(--sub); font-size: 14px; margin: 0 0 16px; }
+  .state { text-align: center; color: var(--sub); padding: 60px 16px; }
+  .spinner { width: 32px; height: 32px; margin: 0 auto 14px; border: 3px solid #dfe5ee; border-top-color: var(--main);
+             border-radius: 50%; animation: spin .9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .card.closed { opacity: .6; }
+  .top { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
+  .card h2 { margin: 0; font-size: 17px; }
+  .sub { color: var(--sub); font-size: 13px; margin-top: 2px; }
+  .date { color: var(--sub); font-size: 12px; white-space: nowrap; }
+  .badge { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 10px; margin-top: 8px; background: #eee; color: #555; }
+  .badge.s-応募したい { background: #e6f4ea; color: #188038; }
+  .badge.s-検討中 { background: #fef7e0; color: #b06000; }
+  .badge.s-見送り { background: #fce8e6; color: #c5221f; }
+  details { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
+  summary { cursor: pointer; color: var(--main); font-size: 14px; }
+  h3 { font-size: 14px; margin: 16px 0 4px; padding: 4px 8px; background: #eef3fb; border-left: 3px solid var(--main); }
+  dl { display: grid; grid-template-columns: 9em 1fr; gap: 0; border-top: 1px solid var(--line); margin: 0; }
+  dt, dd { padding: 8px 6px; border-bottom: 1px solid var(--line); margin: 0; }
+  dt { font-weight: bold; font-size: 13px; color: var(--sub); background: #fafbfc; }
+  dd { white-space: pre-wrap; word-break: break-word; }
+  dd a { color: var(--main); word-break: break-all; }
+  @media (max-width: 520px) {
+    dl { grid-template-columns: 1fr; }
+    dt { border-bottom: 0; padding-bottom: 0; background: none; }
+  }
+  textarea { width: 100%; margin-top: 12px; padding: 8px; border: 1px solid var(--line); border-radius: 6px;
+             font: inherit; font-size: 14px; resize: vertical; min-height: 44px; }
+  .btns { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .btns button { flex: 1; min-width: 90px; padding: 10px 8px; border-radius: 6px; border: 1px solid var(--line);
+                 background: #fff; color: var(--text); font: inherit; font-size: 14px; cursor: pointer; }
+  .btns button.on.b-応募したい { background: #188038; border-color: #188038; color: #fff; }
+  .btns button.on.b-検討中 { background: #b06000; border-color: #b06000; color: #fff; }
+  .btns button.on.b-見送り { background: #c5221f; border-color: #c5221f; color: #fff; }
+  .btns button:disabled { opacity: .5; cursor: default; }
+  .closedNote { margin-top: 8px; font-size: 13px; color: var(--sub); }
+  footer { max-width: 760px; margin: 0 auto; padding: 8px 16px 32px; color: var(--sub); font-size: 12px; }
+  #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #323232; color: #fff;
+           padding: 10px 18px; border-radius: 6px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+  <header>
+    <div class="in">
+      <h1 id="title">ご紹介求人一覧</h1>
+      <p id="sender" hidden></p>
+    </div>
+  </header>
+  <main>
+    <div class="state" id="loading">
+      <div class="spinner"></div>
+      求人情報を読み込んでいます…<br><small>数秒かかることがあります</small>
+    </div>
+    <div class="state" id="error" hidden></div>
+    <div id="content" hidden>
+      <p class="lead">ご紹介している求人の一覧です。気になる求人があれば「応募したい」を押してください。ひとことコメントも添えられます（任意）。回答はあとから変更できます。</p>
+      <div id="list"></div>
+    </div>
+  </main>
+  <footer id="footer" hidden></footer>
+  <div id="toast"></div>
+
+<script>
+  const API = 'https://script.google.com/macros/s/AKfycbzsZqDfcj05lF9GAEGP6z5qn6xfCbwrhF73Zb51bZ3VLsogdfm4jv-SexLYCaP5G8p1kA/exec';
+  const TOKEN = new URLSearchParams(location.search).get('t') || '';
+  let DATA = null;
+
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const linkify = v => /^https?:\/\/\S+$/.test(String(v).trim())
+    ? `<a href="${esc(String(v).trim())}" target="_blank" rel="noopener">${esc(String(v).trim())}</a>` : esc(v);
+
+  function toast(msg) {
+    const t = $('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(t._h);
+    t._h = setTimeout(() => t.classList.remove('show'), 2200);
+  }
+
+  function showError(msg) {
+    $('loading').hidden = true;
+    $('content').hidden = true;
+    $('error').hidden = false;
+    $('error').innerHTML = msg;
+  }
+
+  function cardHtml(j, i) {
+    const badge = `<span class="badge s-${esc(j.status)}">${esc(j.status)}</span>`;
+    if (j.closed) {
+      return `<div class="card closed"><div class="top"><h2>${esc(j.title)}</h2><span class="date">${esc(j.sentAt)}</span></div>
+        ${badge}<div class="closedNote">この求人は現在掲載を終了しています。</div></div>`;
+    }
+    const fields = j.sections.map(g =>
+      `<h3>${esc(g.name)}</h3><dl>${g.fields.map(f => `<dt>${esc(f.label)}</dt><dd>${linkify(f.value)}</dd>`).join('')}</dl>`).join('');
+    const btns = DATA.statuses.map(s =>
+      `<button class="b-${esc(s)}${j.status === s ? ' on' : ''}" data-i="${i}" data-s="${esc(s)}">${esc(s)}</button>`).join('');
+    return `<div class="card" id="card${i}">
+      <div class="top"><div><h2>${esc(j.title)}</h2>${j.sub ? `<div class="sub">${esc(j.sub)}</div>` : ''}</div>
+      <span class="date">${esc(j.sentAt)}</span></div>
+      <span id="badge${i}">${badge}</span>
+      ${fields ? `<details><summary>求人票を見る</summary>${fields}</details>` : ''}
+      <textarea id="cm${i}" placeholder="コメント（任意）">${esc(j.comment)}</textarea>
+      <div class="btns" id="btns${i}">${btns}</div>
+    </div>`;
+  }
+
+  function render() {
+    $('list').innerHTML = DATA.jobs.length
+      ? DATA.jobs.map(cardHtml).join('')
+      : '<div class="state">現在ご紹介中の求人はありません。</div>';
+  }
+
+  // 回答後はそのカードのバッジとボタンだけ更新（開いている求人票を閉じないため）
+  function updateCard(i) {
+    const j = DATA.jobs[i];
+    $('badge' + i).innerHTML = `<span class="badge s-${esc(j.status)}">${esc(j.status)}</span>`;
+    $('btns' + i).querySelectorAll('button').forEach(b => {
+      b.classList.toggle('on', b.dataset.s === j.status);
+      b.disabled = false;
+    });
+  }
+
+  async function load() {
+    if (!/^[0-9a-f]{32}$/.test(TOKEN)) {
+      showError('このページは表示できません。<br>URLをご確認のうえ、担当者にお問い合わせください。');
+      return;
+    }
+    try {
+      const res = await fetch(API + '?api=page&t=' + encodeURIComponent(TOKEN) + '&_=' + Date.now(), { credentials: 'omit' });
+      const d = await res.json();
+      if (d.error) {
+        showError(d.error === 'notfound'
+          ? 'このページは表示できません。<br>URLをご確認のうえ、担当者にお問い合わせください。'
+          : '読み込みに失敗しました。<br>時間をおいて再度お試しください。');
+        return;
+      }
+      DATA = d;
+      $('title').textContent = d.title;
+      document.title = d.title + '｜CARINAR';
+      if (d.sender) { $('sender').textContent = d.sender; $('sender').hidden = false; }
+      if (d.footer) { $('footer').textContent = d.footer; $('footer').hidden = false; }
+      render();
+      $('loading').hidden = true;
+      $('content').hidden = false;
+    } catch (e) {
+      showError('読み込みに失敗しました。<br>通信環境をご確認のうえ、再度お試しください。');
+    }
+  }
+
+  $('list').addEventListener('click', async e => {
+    const b = e.target.closest('button[data-s]');
+    if (!b) return;
+    const i = Number(b.dataset.i);
+    const j = DATA.jobs[i];
+    const status = b.dataset.s;
+    const comment = $('cm' + i).value;
+    $('btns' + i).querySelectorAll('button').forEach(x => x.disabled = true);
+    try {
+      const res = await fetch(API, {
+        method: 'POST',
+        credentials: 'omit',
+        body: JSON.stringify({ t: TOKEN, jobId: j.id, status, comment }),
+      });
+      const r = await res.json();
+      if (!r.ok) throw new Error(r.error || 'error');
+      j.status = r.status;
+      j.comment = r.comment;
+      updateCard(i);
+      toast(`「${r.status}」で送信しました`);
+    } catch (err) {
+      $('btns' + i).querySelectorAll('button').forEach(x => x.disabled = false);
+      toast('送信できませんでした。時間をおいてお試しください。');
+    }
+  });
+
+  load();
+</script>
+</body>
+</html>
