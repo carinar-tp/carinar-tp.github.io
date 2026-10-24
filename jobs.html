@@ -86,7 +86,8 @@
 <script>
   const API = 'https://script.google.com/macros/s/AKfycbzsZqDfcj05lF9GAEGP6z5qn6xfCbwrhF73Zb51bZ3VLsogdfm4jv-SexLYCaP5G8p1kA/exec';
   const QS = new URLSearchParams(location.search);
-  const TOKEN = QS.get('t') || '';
+  // 「…/j?コード」と旧形式「…/jobs.html?t=コード」の両方に対応
+  const TOKEN = QS.get('t') || (location.search.slice(1).split('&')[0].includes('=') ? '' : location.search.slice(1).split('&')[0]);
   const PREVIEW = QS.get('preview') === '1';
   let DATA = null;
 
@@ -147,7 +148,7 @@
   }
 
   async function load(silent) {
-    if (!/^[0-9a-f]{32}$/.test(TOKEN)) {
+    if (!/^([0-9a-f]{32}|[A-Za-z0-9]{12})$/.test(TOKEN)) {
       showError('このページは表示できません。<br>URLをご確認のうえ、担当者にお問い合わせください。');
       return;
     }
