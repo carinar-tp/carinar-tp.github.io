@@ -54,6 +54,7 @@
   .btns button.on.b-見送り { background: #c5221f; border-color: #c5221f; color: #fff; }
   .btns button:disabled { opacity: .5; cursor: default; }
   .closedNote { margin-top: 8px; font-size: 13px; color: var(--sub); }
+  .preview { background: #fff4ce; border-bottom: 1px solid #f0d77b; color: #7a5b00; text-align: center; padding: 8px 16px; font-size: 13px; }
   footer { max-width: 760px; margin: 0 auto; padding: 8px 16px 32px; color: var(--sub); font-size: 12px; }
   #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #323232; color: #fff;
            padding: 10px 18px; border-radius: 6px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; }
@@ -61,6 +62,7 @@
 </style>
 </head>
 <body>
+  <div class="preview" id="previewBar" hidden>プレビュー表示中（管理者用）：このページでは回答できません</div>
   <header>
     <div class="in">
       <h1 id="title">ご紹介求人一覧</h1>
@@ -83,7 +85,9 @@
 
 <script>
   const API = 'https://script.google.com/macros/s/AKfycbzsZqDfcj05lF9GAEGP6z5qn6xfCbwrhF73Zb51bZ3VLsogdfm4jv-SexLYCaP5G8p1kA/exec';
-  const TOKEN = new URLSearchParams(location.search).get('t') || '';
+  const QS = new URLSearchParams(location.search);
+  const TOKEN = QS.get('t') || '';
+  const PREVIEW = QS.get('preview') === '1';
   let DATA = null;
 
   const $ = id => document.getElementById(id);
@@ -115,13 +119,13 @@
     const fields = j.sections.map(g =>
       `<h3>${esc(g.name)}</h3><dl>${g.fields.map(f => `<dt>${esc(f.label)}</dt><dd>${linkify(f.value)}</dd>`).join('')}</dl>`).join('');
     const btns = DATA.statuses.map(s =>
-      `<button class="b-${esc(s)}${j.status === s ? ' on' : ''}" data-i="${i}" data-s="${esc(s)}">${esc(s)}</button>`).join('');
+      `<button class="b-${esc(s)}${j.status === s ? ' on' : ''}" data-i="${i}" data-s="${esc(s)}"${PREVIEW ? ' disabled' : ''}>${esc(s)}</button>`).join('');
     return `<div class="card" id="card${i}">
       <div class="top"><div><h2>${esc(j.title)}</h2>${j.sub ? `<div class="sub">${esc(j.sub)}</div>` : ''}</div>
       <span class="date">${esc(j.sentAt)}</span></div>
       <span id="badge${i}">${badge}</span>
       ${fields ? `<details><summary>求人票を見る</summary>${fields}</details>` : ''}
-      <textarea id="cm${i}" placeholder="コメント（任意）">${esc(j.comment)}</textarea>
+      <textarea id="cm${i}" placeholder="コメント（任意）"${PREVIEW ? ' readonly' : ''}>${esc(j.comment)}</textarea>
       <div class="btns" id="btns${i}">${btns}</div>
     </div>`;
   }
@@ -138,11 +142,11 @@
     $('badge' + i).innerHTML = `<span class="badge s-${esc(j.status)}">${esc(j.status)}</span>`;
     $('btns' + i).querySelectorAll('button').forEach(b => {
       b.classList.toggle('on', b.dataset.s === j.status);
-      b.disabled = false;
+      b.disabled = PREVIEW;
     });
   }
 
-  async function load() {
+  async function load(silent) {
     if (!/^[0-9a-f]{32}$/.test(TOKEN)) {
       showError('このページは表示できません。<br>URLをご確認のうえ、担当者にお問い合わせください。');
       return;
@@ -156,22 +160,28 @@
           : '読み込みに失敗しました。<br>時間をおいて再度お試しください。');
         return;
       }
+      if (silent && document.activeElement && document.activeElement.tagName === 'TEXTAREA') return; // 入力中は上書きしない
+      const open = new Set([...document.querySelectorAll('details[open]')].map(el => el.closest('.card').id));
       DATA = d;
       $('title').textContent = d.title;
       document.title = d.title + '｜CARINAR';
       if (d.sender) { $('sender').textContent = d.sender; $('sender').hidden = false; }
       if (d.footer) { $('footer').textContent = d.footer; $('footer').hidden = false; }
       render();
+      open.forEach(id => { const c = document.getElementById(id); if (c && c.querySelector('details')) c.querySelector('details').open = true; });
       $('loading').hidden = true;
       $('content').hidden = false;
     } catch (e) {
-      showError('読み込みに失敗しました。<br>通信環境をご確認のうえ、再度お試しください。');
+      if (!silent) showError('読み込みに失敗しました。<br>通信環境をご確認のうえ、再度お試しください。');
     }
   }
 
+  // 画面に戻ってきたら最新の状態を読み直す（別タブ・別端末での変更を反映）
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && DATA) load(true); });
+
   $('list').addEventListener('click', async e => {
     const b = e.target.closest('button[data-s]');
-    if (!b) return;
+    if (!b || PREVIEW) return;
     const i = Number(b.dataset.i);
     const j = DATA.jobs[i];
     const status = b.dataset.s;
@@ -195,6 +205,7 @@
     }
   });
 
+  if (PREVIEW) $('previewBar').hidden = false;
   load();
 </script>
 </body>
