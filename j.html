@@ -28,6 +28,11 @@
   .kgrp.ref h2 { border-left-color: #9aa0a6; color: #3c4043; }
   .kgrp p { margin: 4px 0 0 14px; color: var(--sub); font-size: 13px; }
   .card.ref { background: #fbfbfc; }
+  .sortbar { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin: -4px 0 12px; font-size: 13px; color: var(--sub); }
+  .sortbar select { font: inherit; font-size: 14px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--text); }
+  .tags { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px 6px; }
+  .tags span { font-size: 12px; background: #f1f3f4; color: #3c4043; border-radius: 4px; padding: 1px 7px; }
+  .tags span.hl { background: #e8f0fe; color: #1a56c4; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
   .card.closed { opacity: .6; }
   .top { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
@@ -83,6 +88,16 @@
     <div class="state" id="error" hidden></div>
     <div id="content" hidden>
       <p class="lead">ご紹介している求人の一覧です。気になる求人があれば「応募したい」を押してください。ひとことコメントも添えられます（任意）。回答はあとから変更できます。</p>
+      <div class="sortbar" id="sortbar" hidden>
+        <label for="sortSel">並び替え</label>
+        <select id="sortSel">
+          <option value="date">送った日（新しい順）</option>
+          <option value="salHi">年収の高い順</option>
+          <option value="salLo">年収の低い順</option>
+          <option value="ind">業界ごと</option>
+          <option value="type">職種ごと</option>
+        </select>
+      </div>
       <div id="list"></div>
     </div>
   </main>
@@ -130,11 +145,41 @@
     return `<div class="card${j.kind === '参考' ? ' ref' : ''}" id="card${i}">
       <div class="top"><div><h2>${esc(j.title)}</h2>${j.sub ? `<div class="sub">${esc(j.sub)}</div>` : ''}</div>
       <span class="date">${esc(j.sentAt)}</span></div>
+      ${tagsHtml(j)}
       <span id="badge${i}">${badge}</span>
       ${fields ? `<details><summary>求人票を見る</summary>${fields}</details>` : ''}
       <textarea id="cm${i}" placeholder="コメント（任意）"${PREVIEW ? ' readonly' : ''}>${esc(j.comment)}</textarea>
       <div class="btns" id="btns${i}">${btns}</div>
     </div>`;
+  }
+
+  // 並び替え（この端末に選択を保存）
+  let SORT = 'date';
+  try { SORT = localStorage.getItem('jobs.sort') || 'date'; } catch (e) {}
+  function tagsHtml(j) {
+    const k = j.sort || {};
+    const t = [];
+    if (k.ind) t.push(`<span${SORT === 'ind' ? ' class="hl"' : ''}>業界：${esc(k.ind)}</span>`);
+    if (k.type) t.push(`<span${SORT === 'type' ? ' class="hl"' : ''}>職種：${esc(k.type)}</span>`);
+    return t.length ? `<div class="tags">${t.join('')}</div>` : '';
+  }
+  function sortItems(items) {
+    const key = ([j]) => j.sort || {};
+    const cmpText = f => (a, b) => {
+      const x = key(a)[f] || '', y = key(b)[f] || '';
+      if (!x !== !y) return x ? -1 : 1; // 空は後ろ
+      return x.localeCompare(y, 'ja') || a[1] - b[1];
+    };
+    const sal = (a, hi) => { const k = key(a); return hi ? (k.hi || k.lo || 0) : (k.lo || k.hi || 0); };
+    const fns = {
+      date: (a, b) => a[1] - b[1],
+      salHi: (a, b) => (sal(b, true) - sal(a, true)) || a[1] - b[1],
+      salLo: (a, b) => { const x = sal(a, false), y = sal(b, false); if (!x !== !y) return x ? -1 : 1; return (x - y) || a[1] - b[1]; },
+      ind: cmpText('ind'),
+      type: cmpText('type'),
+    };
+    const open = items.filter(([j]) => !j.closed).sort(fns[SORT] || fns.date);
+    return open.concat(items.filter(([j]) => j.closed)); // 掲載終了は最後
   }
 
   // 「ご提案求人」（応募をおすすめ）と「参考求人」に分けて表示。参考がなければ見出しなし
@@ -146,9 +191,11 @@
     if (!DATA.jobs.length) { $('list').innerHTML = '<div class="state">現在ご紹介中の求人はありません。</div>'; return; }
     const kindOf = j => (j.kind === '参考' ? '参考' : '提案');
     const items = DATA.jobs.map((j, i) => [j, i]);
-    if (!items.some(([j]) => kindOf(j) === '参考')) { $('list').innerHTML = items.map(([j, i]) => cardHtml(j, i)).join(''); return; }
+    $('sortbar').hidden = DATA.jobs.length < 2;
+    $('sortSel').value = SORT;
+    if (!items.some(([j]) => kindOf(j) === '参考')) { $('list').innerHTML = sortItems(items).map(([j, i]) => cardHtml(j, i)).join(''); return; }
     $('list').innerHTML = ['提案', '参考'].map(k => {
-      const g = items.filter(([j]) => kindOf(j) === k);
+      const g = sortItems(items.filter(([j]) => kindOf(j) === k));
       if (!g.length) return '';
       const [h, p, cls] = KIND_HEAD[k];
       return `<div class="kgrp${cls}"><h2>${h}（${g.length}件）</h2><p>${p}</p></div>` + g.map(([j, i]) => cardHtml(j, i)).join('');
@@ -234,6 +281,16 @@
       $('btns' + i).querySelectorAll('button').forEach(x => x.disabled = false);
       toast('送信できませんでした。時間をおいてお試しください。');
     }
+  });
+
+  $('sortSel').addEventListener('change', () => {
+    SORT = $('sortSel').value;
+    try { localStorage.setItem('jobs.sort', SORT); } catch (e) {}
+    const open = new Set([...document.querySelectorAll('details[open]')].map(el => el.closest('.card').id));
+    const typed = [...document.querySelectorAll('textarea[id^="cm"]')].map(t => [t.id, t.value]); // 書きかけのコメントを残す
+    render();
+    open.forEach(id => { const c = document.getElementById(id); if (c && c.querySelector('details')) c.querySelector('details').open = true; });
+    typed.forEach(([id, v]) => { const t = document.getElementById(id); if (t) t.value = v; });
   });
 
   if (PREVIEW) $('previewBar').hidden = false;
