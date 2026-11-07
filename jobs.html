@@ -22,6 +22,12 @@
   .spinner { width: 32px; height: 32px; margin: 0 auto 14px; border: 3px solid #dfe5ee; border-top-color: var(--main);
              border-radius: 50%; animation: spin .9s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
+  .kgrp { margin: 24px 0 10px; }
+  .kgrp:first-child { margin-top: 0; }
+  .kgrp h2 { font-size: 16px; margin: 0; padding-left: 10px; border-left: 4px solid var(--main); }
+  .kgrp.ref h2 { border-left-color: #9aa0a6; color: #3c4043; }
+  .kgrp p { margin: 4px 0 0 14px; color: var(--sub); font-size: 13px; }
+  .card.ref { background: #fbfbfc; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
   .card.closed { opacity: .6; }
   .top { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
@@ -121,7 +127,7 @@
       `<h3>${esc(g.name)}</h3><dl>${g.fields.map(f => `<dt>${esc(f.label)}</dt><dd>${linkify(f.value)}</dd>`).join('')}</dl>`).join('');
     const btns = DATA.statuses.map(s =>
       `<button class="b-${esc(s)}${j.status === s ? ' on' : ''}" data-i="${i}" data-s="${esc(s)}"${PREVIEW ? ' disabled' : ''}>${esc(s)}</button>`).join('');
-    return `<div class="card" id="card${i}">
+    return `<div class="card${j.kind === '参考' ? ' ref' : ''}" id="card${i}">
       <div class="top"><div><h2>${esc(j.title)}</h2>${j.sub ? `<div class="sub">${esc(j.sub)}</div>` : ''}</div>
       <span class="date">${esc(j.sentAt)}</span></div>
       <span id="badge${i}">${badge}</span>
@@ -131,10 +137,22 @@
     </div>`;
   }
 
+  // 「ご提案求人」（応募をおすすめ）と「参考求人」に分けて表示。参考がなければ見出しなし
+  const KIND_HEAD = {
+    '提案': ['ご提案求人', '担当者からのおすすめです。ぜひご応募をご検討ください。', ''],
+    '参考': ['参考求人', 'ご参考までにお送りしている求人です。気になるものがあればお気軽にお知らせください。', ' ref'],
+  };
   function render() {
-    $('list').innerHTML = DATA.jobs.length
-      ? DATA.jobs.map(cardHtml).join('')
-      : '<div class="state">現在ご紹介中の求人はありません。</div>';
+    if (!DATA.jobs.length) { $('list').innerHTML = '<div class="state">現在ご紹介中の求人はありません。</div>'; return; }
+    const kindOf = j => (j.kind === '参考' ? '参考' : '提案');
+    const items = DATA.jobs.map((j, i) => [j, i]);
+    if (!items.some(([j]) => kindOf(j) === '参考')) { $('list').innerHTML = items.map(([j, i]) => cardHtml(j, i)).join(''); return; }
+    $('list').innerHTML = ['提案', '参考'].map(k => {
+      const g = items.filter(([j]) => kindOf(j) === k);
+      if (!g.length) return '';
+      const [h, p, cls] = KIND_HEAD[k];
+      return `<div class="kgrp${cls}"><h2>${h}（${g.length}件）</h2><p>${p}</p></div>` + g.map(([j, i]) => cardHtml(j, i)).join('');
+    }).join('');
   }
 
   // 回答後はそのカードのバッジとボタンだけ更新（開いている求人票を閉じないため）
@@ -147,10 +165,28 @@
     });
   }
 
+  // 前回表示した内容をこの端末に保存しておき、開いた瞬間に表示 → 裏で最新を取得
+  const CACHE_KEY = 'jobs.' + TOKEN;
+  function show(d) {
+    const open = new Set([...document.querySelectorAll('details[open]')].map(el => el.closest('.card').id));
+    DATA = d;
+    $('title').textContent = d.title;
+    document.title = d.title + '｜CARINAR';
+    if (d.sender) { $('sender').textContent = d.sender; $('sender').hidden = false; }
+    if (d.footer) { $('footer').textContent = d.footer; $('footer').hidden = false; }
+    render();
+    open.forEach(id => { const c = document.getElementById(id); if (c && c.querySelector('details')) c.querySelector('details').open = true; });
+    $('loading').hidden = true;
+    $('content').hidden = false;
+  }
+
   async function load(silent) {
     if (!/^([0-9a-f]{32}|[A-Za-z0-9]{12})$/.test(TOKEN)) {
       showError('このページは表示できません。<br>URLをご確認のうえ、担当者にお問い合わせください。');
       return;
+    }
+    if (!silent && !DATA) {
+      try { const c = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null'); if (c && c.jobs) { show(c); silent = true; } } catch (e) {}
     }
     try {
       const res = await fetch(API + '?api=page&t=' + encodeURIComponent(TOKEN) + '&_=' + Date.now(), { credentials: 'omit' });
@@ -161,17 +197,10 @@
           : '読み込みに失敗しました。<br>時間をおいて再度お試しください。');
         return;
       }
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify(d)); } catch (e) {}
       if (silent && document.activeElement && document.activeElement.tagName === 'TEXTAREA') return; // 入力中は上書きしない
-      const open = new Set([...document.querySelectorAll('details[open]')].map(el => el.closest('.card').id));
-      DATA = d;
-      $('title').textContent = d.title;
-      document.title = d.title + '｜CARINAR';
-      if (d.sender) { $('sender').textContent = d.sender; $('sender').hidden = false; }
-      if (d.footer) { $('footer').textContent = d.footer; $('footer').hidden = false; }
-      render();
-      open.forEach(id => { const c = document.getElementById(id); if (c && c.querySelector('details')) c.querySelector('details').open = true; });
-      $('loading').hidden = true;
-      $('content').hidden = false;
+      if (silent && $('list').querySelector('button:disabled') && !PREVIEW) return; // 送信中は上書きしない
+      show(d);
     } catch (e) {
       if (!silent) showError('読み込みに失敗しました。<br>通信環境をご確認のうえ、再度お試しください。');
     }
@@ -198,6 +227,7 @@
       if (!r.ok) throw new Error(r.error || 'error');
       j.status = r.status;
       j.comment = r.comment;
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify(DATA)); } catch (e) {}
       updateCard(i);
       toast(`「${r.status}」で送信しました`);
     } catch (err) {
