@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>ご紹介求人一覧｜CARINAR</title>
+<style>
+  :root { --main: #1a73e8; --bg: #f5f7fa; --card: #fff; --text: #222; --sub: #666; --line: #e3e7ed; }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif; font-size: 15px; line-height: 1.6; }
+  header { background: var(--card); border-bottom: 1px solid var(--line); padding: 20px 16px; }
+  header .in { max-width: 760px; margin: 0 auto; }
+  header h1 { margin: 0; font-size: 20px; }
+  header p { margin: 4px 0 0; color: var(--sub); font-size: 13px; }
+  main { max-width: 760px; margin: 0 auto; padding: 16px; }
+  .lead { color: var(--sub); font-size: 14px; margin: 0 0 16px; }
+  .state { text-align: center; color: var(--sub); padding: 60px 16px; }
+  .spinner { width: 32px; height: 32px; margin: 0 auto 14px; border: 3px solid #dfe5ee; border-top-color: var(--main);
+             border-radius: 50%; animation: spin .9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .kgrp { margin: 24px 0 10px; }
+  .kgrp:first-child { margin-top: 0; }
+  .kgrp h2 { font-size: 16px; margin: 0; padding-left: 10px; border-left: 4px solid var(--main); }
+  .kgrp.ref h2 { border-left-color: #9aa0a6; color: #3c4043; }
+  .kgrp p { margin: 4px 0 0 14px; color: var(--sub); font-size: 13px; }
+  .card.ref { background: #fbfbfc; }
+  .sortbar { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin: -4px 0 12px; font-size: 13px; color: var(--sub); }
+  .sortbar select { font: inherit; font-size: 14px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--text); }
+  .tags { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px 6px; }
+  .tags span { font-size: 12px; background: #f1f3f4; color: #3c4043; border-radius: 4px; padding: 1px 7px; }
+  .tags span.hl { background: #e8f0fe; color: #1a56c4; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .card.closed { opacity: .6; }
+  .top { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
+  .card h2 { margin: 0; font-size: 17px; }
+  .sub { color: var(--sub); font-size: 13px; margin-top: 2px; }
+  .date { color: var(--sub); font-size: 12px; white-space: nowrap; }
+  .badge { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 10px; margin-top: 8px; background: #eee; color: #555; }
+  .badge.s-応募したい { background: #e6f4ea; color: #188038; }
+  .badge.s-検討中 { background: #fef7e0; color: #b06000; }
+  .badge.s-見送り { background: #fce8e6; color: #c5221f; }
+  details { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
+  summary { cursor: pointer; color: var(--main); font-size: 14px; }
+  h3 { font-size: 14px; margin: 16px 0 4px; padding: 4px 8px; background: #eef3fb; border-left: 3px solid var(--main); }
+  dl { display: grid; grid-template-columns: 9em 1fr; gap: 0; border-top: 1px solid var(--line); margin: 0; }
+  dt, dd { padding: 8px 6px; border-bottom: 1px solid var(--line); margin: 0; }
+  dt { font-weight: bold; font-size: 13px; color: var(--sub); background: #fafbfc; }
+  dd { white-space: pre-wrap; word-break: break-word; }
+  dd a { color: var(--main); word-break: break-all; }
+  @media (max-width: 520px) {
+    dl { grid-template-columns: 1fr; }
+    dt { border-bottom: 0; padding-bottom: 0; background: none; }
+  }
+  textarea { width: 100%; margin-top: 12px; padding: 8px; border: 1px solid var(--line); border-radius: 6px;
+             font: inherit; font-size: 14px; resize: vertical; min-height: 44px; }
+  .btns { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .btns button { flex: 1; min-width: 90px; padding: 10px 8px; border-radius: 6px; border: 1px solid var(--line);
+                 background: #fff; color: var(--text); font: inherit; font-size: 14px; cursor: pointer; }
+  .btns button.on.b-応募したい { background: #188038; border-color: #188038; color: #fff; }
+  .btns button.on.b-検討中 { background: #b06000; border-color: #b06000; color: #fff; }
+  .btns button.on.b-見送り { background: #c5221f; border-color: #c5221f; color: #fff; }
+  .btns button:disabled { opacity: .5; cursor: default; }
+  .closedNote { margin-top: 8px; font-size: 13px; color: var(--sub); }
+  .preview { background: #fff4ce; border-bottom: 1px solid #f0d77b; color: #7a5b00; text-align: center; padding: 8px 16px; font-size: 13px; }
+  footer { max-width: 760px; margin: 0 auto; padding: 8px 16px 32px; color: var(--sub); font-size: 12px; }
+  #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #323232; color: #fff;
+           padding: 10px 18px; border-radius: 6px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+  <div class="preview" id="previewBar" hidden>プレビュー表示中（管理者用）：このページでは回答できません</div>
+  <header>
+    <div class="in">
+      <h1 id="title">ご紹介求人一覧</h1>
+      <p id="sender" hidden></p>
+    </div>
+  </header>
+  <main>
+    <div class="state" id="loading">
+      <div class="spinner"></div>
+      求人情報を読み込んでいます…<br><small>数秒かかることがあります</small>
+    </div>
+    <div class="state" id="error" hidden></div>
+    <div id="content" hidden>
+      <p class="lead">ご紹介している求人の一覧です。気になる求人があれば「応募したい」を押してください。ひとことコメントも添えられます（任意）。回答はあとから変更できます。</p>
+      <div class="sortbar" id="sortbar" hidden>
+        <label for="sortSel">並び替え</label>
+        <select id="sortSel">
+          <option value="date">送った日（新しい順）</option>
+          <option value="salHi">年収の高い順</option>
+          <option value="salLo">年収の低い順</option>
+          <option value="ind">業界ごと</option>
+          <option value="type">職種ごと</option>
+        </select>
+      </div>
+      <div id="list"></div>
+    </div>
+  </main>
+  <footer id="footer" hidden></footer>
+  <div id="toast"></div>
+
+<script>
+  const API = 'https://script.google.com/macros/s/AKfycbzLlSowFClHorrvhTus3w8ihww37voA2dMEv8cXj8sM08sw30v_A7QW8v42btNatHyf3A/exec';
+  const QS = new URLSearchParams(location.search);
+  // 「…/j?コード」と旧形式「…/jobs.html?t=コード」の両方に対応
+  const TOKEN = QS.get('t') || (location.search.slice(1).split('&')[0].includes('=') ? '' : location.search.slice(1).split('&')[0]);
+  const PREVIEW = QS.get('preview') === '1';
+  let DATA = null;
+
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const linkify = v => /^https?:\/\/\S+$/.test(String(v).trim())
+    ? `<a href="${esc(String(v).trim())}" target="_blank" rel="noopener">${esc(String(v).trim())}</a>` : esc(v);
+
+  function toast(msg) {
+    const t = $('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(t._h);
+    t._h = setTimeout(() => t.classList.remove('show'), 2200);
+  }
+
+  function showError(msg) {
+    $('loading').hidden = true;
+    $('content').hidden = true;
+    $('error').hidden = false;
+    $('error').innerHTML = msg;
+  }
+
+  function cardHtml(j, i) {
+    const badge = `<span class="badge s-${esc(j.status)}">${esc(j.status)}</span>`;
+    if (j.closed) {
+      return `<div class="card closed"><div class="top"><h2>${esc(j.title)}</h2><span class="date">${esc(j.sentAt)}</span></div>
+        ${badge}<div class="closedNote">この求人は現在掲載を終了しています。</div></div>`;
+    }
+    const fields = j.sections.map(g =>
+      `<h3>${esc(g.name)}</h3><dl>${g.fields.map(f => `<dt>${esc(f.label)}</dt><dd>${linkify(f.value)}</dd>`).join('')}</dl>`).join('');
+    const btns = DATA.statuses.map(s =>
+      `<button class="b-${esc(s)}${j.status === s ? ' on' : ''}" data-i="${i}" data-s="${esc(s)}"${PREVIEW ? ' disabled' : ''}>${esc(s)}</button>`).join('');
+    return `<div class="card${j.kind === '参考' ? ' ref' : ''}" id="card${i}">
+      <div class="top"><div><h2>${esc(j.title)}</h2>${j.sub ? `<div class="sub">${esc(j.sub)}</div>` : ''}</div>
+      <span class="date">${esc(j.sentAt)}</span></div>
+      ${tagsHtml(j)}
+      <span id="badge${i}">${badge}</span>
+      ${fields ? `<details><summary>求人票を見る</summary>${fields}</details>` : ''}
+      <textarea id="cm${i}" placeholder="コメント（任意）"${PREVIEW ? ' readonly' : ''}>${esc(j.comment)}</textarea>
+      <div class="btns" id="btns${i}">${btns}</div>
+    </div>`;
+  }
+
+  // 並び替え（この端末に選択を保存）
+  let SORT = 'date';
+  try { SORT = localStorage.getItem('jobs.sort') || 'date'; } catch (e) {}
+  function tagsHtml(j) {
+    const k = j.sort || {};
+    const t = [];
+    if (k.ind) t.push(`<span${SORT === 'ind' ? ' class="hl"' : ''}>業界：${esc(k.ind)}</span>`);
+    if (k.type) t.push(`<span${SORT === 'type' ? ' class="hl"' : ''}>職種：${esc(k.type)}</span>`);
+    return t.length ? `<div class="tags">${t.join('')}</div>` : '';
+  }
+  function sortItems(items) {
+    const key = ([j]) => j.sort || {};
+    const cmpText = f => (a, b) => {
+      const x = key(a)[f] || '', y = key(b)[f] || '';
+      if (!x !== !y) return x ? -1 : 1; // 空は後ろ
+      return x.localeCompare(y, 'ja') || a[1] - b[1];
+    };
+    const sal = (a, hi) => { const k = key(a); return hi ? (k.hi || k.lo || 0) : (k.lo || k.hi || 0); };
+    const fns = {
+      date: (a, b) => a[1] - b[1],
+      salHi: (a, b) => (sal(b, true) - sal(a, true)) || a[1] - b[1],
+      salLo: (a, b) => { const x = sal(a, false), y = sal(b, false); if (!x !== !y) return x ? -1 : 1; return (x - y) || a[1] - b[1]; },
+      ind: cmpText('ind'),
+      type: cmpText('type'),
+    };
+    const open = items.filter(([j]) => !j.closed).sort(fns[SORT] || fns.date);
+    return open.concat(items.filter(([j]) => j.closed)); // 掲載終了は最後
+  }
+
+  // 「ご提案求人」（応募をおすすめ）と「参考求人」に分けて表示。参考がなければ見出しなし
+  const KIND_HEAD = {
+    '提案': ['ご提案求人', '担当者からのおすすめです。ぜひご応募をご検討ください。', ''],
+    '参考': ['参考求人', 'ご参考までにお送りしている求人です。気になるものがあればお気軽にお知らせください。', ' ref'],
+  };
+  function render() {
+    if (!DATA.jobs.length) { $('list').innerHTML = '<div class="state">現在ご紹介中の求人はありません。</div>'; return; }
+    const kindOf = j => (j.kind === '参考' ? '参考' : '提案');
+    const items = DATA.jobs.map((j, i) => [j, i]);
+    $('sortbar').hidden = DATA.jobs.length < 2;
+    $('sortSel').value = SORT;
+    if (!items.some(([j]) => kindOf(j) === '参考')) { $('list').innerHTML = sortItems(items).map(([j, i]) => cardHtml(j, i)).join(''); return; }
+    $('list').innerHTML = ['提案', '参考'].map(k => {
+      const g = sortItems(items.filter(([j]) => kindOf(j) === k));
+      if (!g.length) return '';
+      const [h, p, cls] = KIND_HEAD[k];
+      return `<div class="kgrp${cls}"><h2>${h}（${g.length}件）</h2><p>${p}</p></div>` + g.map(([j, i]) => cardHtml(j, i)).join('');
+    }).join('');
+  }
+
+  // 回答後はそのカードのバッジとボタンだけ更新（開いている求人票を閉じないため）
+  function updateCard(i) {
+    const j = DATA.jobs[i];
+    $('badge' + i).innerHTML = `<span class="badge s-${esc(j.status)}">${esc(j.status)}</span>`;
+    $('btns' + i).querySelectorAll('button').forEach(b => {
+      b.classList.toggle('on', b.dataset.s === j.status);
+      b.disabled = PREVIEW;
+    });
+  }
+
+  // 前回表示した内容をこの端末に保存しておき、開いた瞬間に表示 → 裏で最新を取得
+  const CACHE_KEY = 'jobsk.' + TOKEN;
+  function show(d) {
+    const open = new Set([...document.querySelectorAll('details[open]')].map(el => el.closest('.card').id));
+    DATA = d;
+    $('title').textContent = d.title;
+    document.title = d.title + '｜CARINAR';
+    if (d.sender) { $('sender').textContent = d.sender; $('sender').hidden = false; }
+    if (d.footer) { $('footer').textContent = d.footer; $('footer').hidden = false; }
+    render();
+    open.forEach(id => { const c = document.getElementById(id); if (c && c.querySelector('details')) c.querySelector('details').open = true; });
+    $('loading').hidden = true;
+    $('content').hidden = false;
+  }
+
+  async function load(silent) {
+    if (!/^([0-9a-f]{32}|[A-Za-z0-9]{12})$/.test(TOKEN)) {
+      showError('このページは表示できません。<br>URLをご確認のうえ、担当者にお問い合わせください。');
+      return;
+    }
+    if (!silent && !DATA) {
+      try { const c = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null'); if (c && c.jobs) { show(c); silent = true; } } catch (e) {}
+    }
+    try {
+      const res = await fetch(API + '?api=page&t=' + encodeURIComponent(TOKEN) + '&_=' + Date.now(), { credentials: 'omit' });
+      const d = await res.json();
+      if (d.error) {
+        showError(d.error === 'notfound'
+          ? 'このページは表示できません。<br>URLをご確認のうえ、担当者にお問い合わせください。'
+          : '読み込みに失敗しました。<br>時間をおいて再度お試しください。');
+        return;
+      }
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify(d)); } catch (e) {}
+      if (silent && document.activeElement && document.activeElement.tagName === 'TEXTAREA') return; // 入力中は上書きしない
+      if (silent && $('list').querySelector('button:disabled') && !PREVIEW) return; // 送信中は上書きしない
+      show(d);
+    } catch (e) {
+      if (!silent) showError('読み込みに失敗しました。<br>通信環境をご確認のうえ、再度お試しください。');
+    }
+  }
+
+  // 画面に戻ってきたら最新の状態を読み直す（別タブ・別端末での変更を反映）
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && DATA) load(true); });
+
+  $('list').addEventListener('click', async e => {
+    const b = e.target.closest('button[data-s]');
+    if (!b || PREVIEW) return;
+    const i = Number(b.dataset.i);
+    const j = DATA.jobs[i];
+    const status = b.dataset.s;
+    const comment = $('cm' + i).value;
+    $('btns' + i).querySelectorAll('button').forEach(x => x.disabled = true);
+    try {
+      const res = await fetch(API, {
+        method: 'POST',
+        credentials: 'omit',
+        body: JSON.stringify({ t: TOKEN, jobId: j.id, status, comment }),
+      });
+      const r = await res.json();
+      if (!r.ok) throw new Error(r.error || 'error');
+      j.status = r.status;
+      j.comment = r.comment;
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify(DATA)); } catch (e) {}
+      updateCard(i);
+      toast(`「${r.status}」で送信しました`);
+    } catch (err) {
+      $('btns' + i).querySelectorAll('button').forEach(x => x.disabled = false);
+      toast('送信できませんでした。時間をおいてお試しください。');
+    }
+  });
+
+  $('sortSel').addEventListener('change', () => {
+    SORT = $('sortSel').value;
+    try { localStorage.setItem('jobs.sort', SORT); } catch (e) {}
+    const open = new Set([...document.querySelectorAll('details[open]')].map(el => el.closest('.card').id));
+    const typed = [...document.querySelectorAll('textarea[id^="cm"]')].map(t => [t.id, t.value]); // 書きかけのコメントを残す
+    render();
+    open.forEach(id => { const c = document.getElementById(id); if (c && c.querySelector('details')) c.querySelector('details').open = true; });
+    typed.forEach(([id, v]) => { const t = document.getElementById(id); if (t) t.value = v; });
+  });
+
+  if (PREVIEW) $('previewBar').hidden = false;
+  load();
+</script>
+</body>
+</html>
