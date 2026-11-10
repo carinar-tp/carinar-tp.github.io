@@ -95,8 +95,12 @@ const JOB_RULES = [
   [/店長|店舗/, '営業・サービス', '店舗管理・店舗運営'],
   [/企画/, '経営・管理・人事', '事業企画・事業統括'],
 ];
+  const jobText_ = (title, sub) => [title, sub].filter(Boolean).join(' ').normalize('NFKC')
+    .replace(/\[[^\]]*\]/g, ' ') // 末尾の [ 事業部名 ] など
+    .replace(/(人事|HR|採用|人材|転職|キャリア|医療|福祉|介護)(領域|サービス|事業|テック|Tech|業界|SaaS|プラットフォーム|メディア)/gi, ' ') // 「何を扱う会社か」で職種を誤判定しない
+    .replace(/※\s*(経験者|ポテンシャル|中途)採用|\((経験者|ポテンシャル|中途|キャリア)採用\)|(経験者|ポテンシャル)採用/g, ' '); // 募集区分の「採用」
   const classifyJob = (title, sub, company) => {
-    const t = [title, sub].filter(Boolean).join(' ').normalize('NFKC');
+    const t = jobText_(title, sub);
     for (const [re, type, detail, need] of JOB_RULES) {
       if (re.test(t) && (!need || need.test(t))) return [type === 'IT・ゲーム・データ' ? 'IT・ゲーム・デザイン' : type, detail];
     }
