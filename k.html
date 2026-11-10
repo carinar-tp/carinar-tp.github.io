@@ -33,6 +33,10 @@
   .tags { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px 6px; }
   .tags span { font-size: 12px; background: #f1f3f4; color: #3c4043; border-radius: 4px; padding: 1px 7px; }
   .tags span.hl { background: #e8f0fe; color: #1a56c4; }
+  .tags span.ut { background: #e6f4ea; color: #137333; }
+  .tagbar { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
+  .tagbar button { font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 16px; border: 1px solid var(--line); background: #fff; color: var(--text); cursor: pointer; }
+  .tagbar button.on { background: var(--main); border-color: var(--main); color: #fff; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
   .card.closed { opacity: .6; }
   .top { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
@@ -98,6 +102,7 @@
           <option value="type">職種ごと</option>
         </select>
       </div>
+      <div class="tagbar" id="tagbar" hidden></div>
       <div id="list"></div>
     </div>
   </main>
@@ -161,6 +166,7 @@
     const t = [];
     if (k.ind) t.push(`<span${SORT === 'ind' ? ' class="hl"' : ''}>業界：${esc(k.ind)}</span>`);
     if (k.type) t.push(`<span${SORT === 'type' ? ' class="hl"' : ''}>職種：${esc(k.type)}</span>`);
+    (j.tags || []).forEach(x => t.push(`<span class="ut">#${esc(x)}</span>`));
     return t.length ? `<div class="tags">${t.join('')}</div>` : '';
   }
   function sortItems(items) {
@@ -187,10 +193,22 @@
     '提案': ['ご提案求人', '担当者からのおすすめです。ぜひご応募をご検討ください。', ''],
     '参考': ['参考求人', 'ご参考までにお送りしている求人です。気になるものがあればお気軽にお知らせください。', ' ref'],
   };
+  // タグで絞り込み（担当者がタグを付けた求人があるときだけ、上にボタンを出す）
+  let TAG = '';
+  function renderTagbar() {
+    const n = {};
+    DATA.jobs.forEach(j => { if (!j.closed) (j.tags || []).forEach(t => { n[t] = (n[t] || 0) + 1; }); });
+    const tags = Object.keys(n).sort((a, b) => n[b] - n[a] || a.localeCompare(b, 'ja'));
+    if (TAG && !n[TAG]) TAG = '';
+    $('tagbar').hidden = !tags.length;
+    $('tagbar').innerHTML = !tags.length ? '' : `<button data-tag=""${TAG ? '' : ' class="on"'}>すべて（${DATA.jobs.length}）</button>` +
+      tags.map(t => `<button data-tag="${esc(t)}"${TAG === t ? ' class="on"' : ''}>#${esc(t)}（${n[t]}）</button>`).join('');
+  }
   function render() {
-    if (!DATA.jobs.length) { $('list').innerHTML = '<div class="state">現在ご紹介中の求人はありません。</div>'; return; }
+    if (!DATA.jobs.length) { $('tagbar').hidden = true; $('list').innerHTML = '<div class="state">現在ご紹介中の求人はありません。</div>'; return; }
+    renderTagbar();
     const kindOf = j => (j.kind === '参考' ? '参考' : '提案');
-    const items = DATA.jobs.map((j, i) => [j, i]);
+    const items = DATA.jobs.map((j, i) => [j, i]).filter(([j]) => !TAG || (j.tags || []).includes(TAG));
     $('sortbar').hidden = DATA.jobs.length < 2;
     $('sortSel').value = SORT;
     if (!items.some(([j]) => kindOf(j) === '参考')) { $('list').innerHTML = sortItems(items).map(([j, i]) => cardHtml(j, i)).join(''); return; }
@@ -283,15 +301,24 @@
     }
   });
 
+  $('tagbar').addEventListener('click', e => {
+    const b = e.target.closest('[data-tag]');
+    if (!b) return;
+    TAG = b.dataset.tag;
+    rerender();
+  });
   $('sortSel').addEventListener('change', () => {
     SORT = $('sortSel').value;
     try { localStorage.setItem('jobs.sort', SORT); } catch (e) {}
+    rerender();
+  });
+  function rerender() {
     const open = new Set([...document.querySelectorAll('details[open]')].map(el => el.closest('.card').id));
     const typed = [...document.querySelectorAll('textarea[id^="cm"]')].map(t => [t.id, t.value]); // 書きかけのコメントを残す
     render();
     open.forEach(id => { const c = document.getElementById(id); if (c && c.querySelector('details')) c.querySelector('details').open = true; });
     typed.forEach(([id, v]) => { const t = document.getElementById(id); if (t) t.value = v; });
-  });
+  }
 
   if (PREVIEW) $('previewBar').hidden = false;
   load();
