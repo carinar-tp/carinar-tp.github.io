@@ -62,6 +62,8 @@
   textarea { width: 100%; margin-top: 12px; padding: 8px; border: 1px solid var(--line); border-radius: 6px;
              font: inherit; font-size: 14px; resize: vertical; min-height: 44px; }
   .btns { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .cmnote { font-size: 12px; color: #b06000; margin-top: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .cmnote button { font: inherit; font-size: 12px; padding: 4px 12px; border-radius: 6px; border: 1px solid #b06000; background: #fff7e6; color: #b06000; cursor: pointer; }
   .btns button { flex: 1; min-width: 90px; padding: 10px 8px; border-radius: 6px; border: 1px solid var(--line);
                  background: #fff; color: var(--text); font: inherit; font-size: 14px; cursor: pointer; }
   .btns button.on.b-応募したい { background: #188038; border-color: #188038; color: #fff; }
@@ -137,6 +139,53 @@
     $('error').innerHTML = msg;
   }
 
+  // 書きかけのコメントはこの端末に保存（送信前にページを閉じたり、読み直したりしても消えないように）
+  const DRAFT_KEY = 'jobs.draft.' + TOKEN;
+  let DRAFTS = {};
+  try { DRAFTS = JSON.parse(localStorage.getItem(DRAFT_KEY) || '{}') || {}; } catch (e) {}
+  const saveDrafts = () => { try { localStorage.setItem(DRAFT_KEY, JSON.stringify(DRAFTS)); } catch (e) {} };
+  const draftOf = j => (DRAFTS[j.id] != null ? DRAFTS[j.id] : (j.comment || ''));
+  const answered = j => DATA.statuses.includes(j.status); // statuses は回答の選択肢（未回答は含まない）
+  function cmNoteHtml(j, i) {
+    return answered(j)
+      ? `コメントはまだ送信されていません <button data-cmsend="${i}">コメントを送信</button>`
+      : 'コメントは、下のボタン（応募したい など）を押すと一緒に送信されます';
+  }
+  function updateNote(i) {
+    const j = DATA.jobs[i], t = $('cm' + i), n = $('cmn' + i);
+    if (!j || !t || !n) return;
+    const dirty = t.value !== (j.comment || '');
+    n.hidden = !dirty;
+    if (dirty) n.innerHTML = cmNoteHtml(j, i);
+  }
+  async function sendAnswer(i, status) {
+    const j = DATA.jobs[i];
+    const comment = $('cm' + i).value;
+    $('btns' + i).querySelectorAll('button').forEach(x => x.disabled = true);
+    const sb = $('cmn' + i).querySelector('button'); if (sb) sb.disabled = true;
+    try {
+      const res = await fetch(API, {
+        method: 'POST',
+        credentials: 'omit',
+        body: JSON.stringify({ t: TOKEN, jobId: j.id, status, comment }),
+      });
+      const r = await res.json();
+      if (!r.ok) throw new Error(r.error || 'error');
+      j.status = r.status;
+      j.comment = r.comment;
+      delete DRAFTS[j.id]; saveDrafts();
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify(DATA)); } catch (e) {}
+      updateCard(i);
+      updateNote(i);
+      return r;
+    } catch (err) {
+      $('btns' + i).querySelectorAll('button').forEach(x => x.disabled = false);
+      if (sb) sb.disabled = false;
+      toast('送信できませんでした。時間をおいてお試しください。');
+      return null;
+    }
+  }
+
   function cardHtml(j, i) {
     const badge = `<span class="badge s-${esc(j.status)}">${esc(j.status)}</span>`;
     if (j.closed) {
@@ -153,7 +202,8 @@
       ${tagsHtml(j)}
       <span id="badge${i}">${badge}</span>
       ${fields ? `<details><summary>求人票を見る</summary>${fields}</details>` : ''}
-      <textarea id="cm${i}" placeholder="コメント（任意）"${PREVIEW ? ' readonly' : ''}>${esc(j.comment)}</textarea>
+      <textarea id="cm${i}" data-cm="${i}" placeholder="コメント（任意）"${PREVIEW ? ' readonly' : ''}>${esc(draftOf(j))}</textarea>
+      <div class="cmnote" id="cmn${i}"${draftOf(j) === (j.comment || '') ? ' hidden' : ''}>${cmNoteHtml(j, i)}</div>
       <div class="btns" id="btns${i}">${btns}</div>
     </div>`;
   }
@@ -274,31 +324,27 @@
   // 画面に戻ってきたら最新の状態を読み直す（別タブ・別端末での変更を反映）
   document.addEventListener('visibilitychange', () => { if (!document.hidden && DATA) load(true); });
 
+  $('list').addEventListener('input', e => {
+    const t = e.target.closest('textarea[data-cm]');
+    if (!t || PREVIEW) return;
+    const i = Number(t.dataset.cm), j = DATA.jobs[i];
+    if (t.value === (j.comment || '')) delete DRAFTS[j.id]; else DRAFTS[j.id] = t.value;
+    saveDrafts();
+    updateNote(i);
+  });
   $('list').addEventListener('click', async e => {
-    const b = e.target.closest('button[data-s]');
-    if (!b || PREVIEW) return;
-    const i = Number(b.dataset.i);
-    const j = DATA.jobs[i];
-    const status = b.dataset.s;
-    const comment = $('cm' + i).value;
-    $('btns' + i).querySelectorAll('button').forEach(x => x.disabled = true);
-    try {
-      const res = await fetch(API, {
-        method: 'POST',
-        credentials: 'omit',
-        body: JSON.stringify({ t: TOKEN, jobId: j.id, status, comment }),
-      });
-      const r = await res.json();
-      if (!r.ok) throw new Error(r.error || 'error');
-      j.status = r.status;
-      j.comment = r.comment;
-      try { localStorage.setItem(CACHE_KEY, JSON.stringify(DATA)); } catch (e) {}
-      updateCard(i);
-      toast(`「${r.status}」で送信しました`);
-    } catch (err) {
-      $('btns' + i).querySelectorAll('button').forEach(x => x.disabled = false);
-      toast('送信できませんでした。時間をおいてお試しください。');
+    if (PREVIEW) return;
+    const cs = e.target.closest('button[data-cmsend]');
+    if (cs) {
+      const i = Number(cs.dataset.cmsend);
+      const r = await sendAnswer(i, DATA.jobs[i].status);
+      if (r) toast('コメントを送信しました');
+      return;
     }
+    const b = e.target.closest('button[data-s]');
+    if (!b) return;
+    const r = await sendAnswer(Number(b.dataset.i), b.dataset.s);
+    if (r) toast(`「${r.status}」で送信しました`);
   });
 
   $('tagbar').addEventListener('click', e => {
