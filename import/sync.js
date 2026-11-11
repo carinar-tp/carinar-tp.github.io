@@ -3,9 +3,9 @@
 (async () => {
 const JOB_RULES = [
   // 経営層
-  [/CFO(?!室|直下|直轄|直属|配下)/, '経営・管理・人事', 'CFO'],
-  [/(CEO|COO)(?!室|直下|直轄|直属|配下)|代表取締役|経営者候補|社長候補/, '経営・管理・人事', '経営者・CEO・COO'],
-  [/(CTO|CIO|CDO|CISO|VPoE)(?!室|直下|直轄|直属|配下)/, '経営・管理・人事', 'CXO（IT関連）'],
+  [/CFO(?!室|直下|直轄|直属|配下)|最高財務責任者/, '経営・管理・人事', 'CFO'],
+  [/(CEO|COO)(?!室|直下|直轄|直属|配下)|最高(経営|執行)責任者|代表取締役|経営者候補|社長候補/, '経営・管理・人事', '経営者・CEO・COO'],
+  [/(CTO|CIO|CDO|CISO|VPoE)(?!室|直下|直轄|直属|配下)|最高(技術|情報|デジタル)責任者/, '経営・管理・人事', 'CXO（IT関連）'],
   [/(CHRO|CMO|CxO|CRO|CSO|CPO)(?!室|直下|直轄|直属|配下)|執行役員|取締役/, '経営・管理・人事', 'その他CXO'],
   // 士業
   [/弁護士/, 'その他', '弁護士'],
@@ -119,7 +119,8 @@ function classifyJob(title, sub, company) {
   const r = (core && core !== title ? hit(jobText_(core, '')) : null) || hit(jobText_(title, '')) || (sub ? hit(jobText_(title, sub)) : null);
   if (r) return r;
   const c = String(company || '').normalize('NFKC');
-  if (/コンサルティング|コンサルタンツ|経営研究所|総研|総合研究所|FAS|アドバイザリー/.test(c)) return ['コンサルタント・専門職', 'その他'];
+  // コンサル会社の求人は、求人名に「コンサル」がなくてもコンサル職として種類を見る（例：「デジタル戦略ユニット」）
+  if (/コンサルティング|コンサルタンツ|経営研究所|総研|総合研究所|FAS|アドバイザリー/.test(c)) return hit(jobText_(title, 'コンサル')) || ['コンサルタント・専門職', 'その他'];
   return ['', ''];
 }
 
