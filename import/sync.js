@@ -122,8 +122,8 @@ const JOB_RULES = [
   if (window.__jobsyncRunning) { ui('求人の更新', 'すでに実行中です。終わるまでお待ちください。', null, false); return; }
   if (!CFG.exec || !CFG.key) { ui('求人の更新', 'ブックマークの設定が正しくありません。管理画面の「HRMOS・Talentio更新」から登録し直してください。', null, true); return; }
   const host = location.host;
-  const SRC = /hrmos\.co$/.test(host) && location.pathname.startsWith('/agent') ? 'HRMOS' : /talentio\.com$/.test(host) ? 'TALENTIO' : '';
-  if (!SRC) { ui('求人の更新', 'HRMOSかTalentioのエージェント画面（ログイン後）で押してください。', null, true); return; }
+  const SRC = /hrmos\.co$/.test(host) && location.pathname.startsWith('/agent') ? 'HRMOS' : /talentio\.com$/.test(host) ? 'TALENTIO' : /^agent\.herp\.cloud$/.test(host) ? 'HERP' : '';
+  if (!SRC) { ui('求人の更新', 'HRMOS・Talentio・HERPのエージェント画面（ログイン後）で押してください。', null, true); return; }
   window.__jobsyncRunning = true;
 
   const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -287,10 +287,12 @@ const JOB_RULES = [
     let buf = [], got = 0, added = 0, updated = 0;
     const flush = async () => {
       if (!buf.length) return;
-      const d = first ? await post({ stage: 'append', rows: buf }) : await post({ stage: 'upsert', rows: buf });
-      added += d.added || 0; updated += d.updated || 0; buf = [];
+      const d = first ? await post({ stage: 'rows', rows: buf }) : await post({ stage: 'upsert', rows: buf });
+      if (first) { sent += buf.length; added = sent; } else { added += d.added || 0; updated += d.updated || 0; }
+      buf = [];
     };
-    if (first) await post({ stage: 'start', headers: H }).then(() => post({ stage: 'finish', expect: 0 })).catch(() => {});
+    if (first) await post({ stage: 'start', headers: H }); // 初回は作業用シートに書いて、最後にまとめて入れ替える
+    let sent = 0;
     for (const r of todo) {
       const left = Math.ceil((todo.length - got) * 3 / 60);
       ui(T, `新しい・変わった求人を読み込み中… ${got} / ${todo.length}件\n（あと約${left}分。タブは開いたままにしてください）`, todo.length ? got / todo.length * 90 : 90);
@@ -308,13 +310,151 @@ const JOB_RULES = [
       await sleep(2500);
     }
     await flush();
+    if (first) { if (!sent) throw new Error('求人が1件も読めませんでした。'); await post({ stage: 'finish', expect: sent }); }
     ui(T, '掲載が終わった求人を整理しています…', 95);
     const pr = await post({ stage: 'prune', keep: live.map(r => 'TL-' + r.id) });
     return `Talentioの求人を更新しました（全${pr.n}件）。\n新規 ${added}件・更新 ${updated}件・掲載終了で削除 ${pr.removed}件\n管理画面で「再読み込み」を押すと反映されます。`;
   }
 
+  // ===== HERP：「ATS取込URL」シートに並べた会社ページを順に読む（新しい求人と、1週間以上前に読んだ求人だけ中身を読み直す） =====
+  async function runHerp() {
+    const T = 'HERPの求人を更新中';
+    const H = ['Id','Account_Text__c','JobName__c','JobType__c','JobTypeDetails__c','JobSituation__c','EmploymentStatus__c','WorkLocation__c','Address__c',
+      'AnnualIncomeLowerLimit__c','AnnualIncomMaxLimit__c','CompensationSystemDetails__c','BusinessContents__c','AdoptionElements__c',
+      'WorkingTime__c','HolidayVacation__c','WelfareOfficer__c','Insurance__c','PassiveSmokingPreventionMeasures__c',
+      'TrialPeriod__c','SelectionProcess__c','RemoteWork__c','CorporateInformation__c','NumberOfEmployees__c',
+      'CorporateAccount__r.RepresentativeName__c','CorporateAccount__r.CompanyEstablishedDateFomula__c','InformationUpdateDate__c',
+      'HERP_紹介会社向け情報','HERP_求人URL','取込日'];
+    const salary = txt => {
+      const t = String(txt || '').normalize('NFKC');
+      const yen = (n, u) => { n = parseFloat(String(n).replace(/,/g, '')); if (!n) return ''; return Math.round(/万/.test(u || '') || n < 10000 ? n * 10000 : n); };
+      let m = t.match(/年収[^\d\n]{0,8}([\d,.]+)\s*(万円|万|円)?\s*[~〜～\-ー－]\s*([\d,.]+)\s*(万円|万|円)?/);
+      if (m) return [yen(m[1], m[2] || m[4]), yen(m[3], m[4])];
+      m = t.match(/年収[^\d\n]{0,8}([\d,.]+)\s*(万円|万|円)/);
+      return m ? [yen(m[1], m[2]), ''] : ['', ''];
+    };
+    const herpData = html => {
+      const s = [...new DOMParser().parseFromString(html, 'text/html').querySelectorAll('script')].map(x => x.textContent).find(x => x.includes('herpCb(null,'));
+      if (!s) return null;
+      let t = s.slice(s.indexOf('herpCb(null,') + 12);
+      return JSON.parse(t.slice(0, t.lastIndexOf(')')));
+    };
+    const AGENT_INFO = { background: '募集背景', target: 'ターゲット', fixedNumber: '採用人数', period: '採用期限', treatment: '待遇', priority: '優先度' };
+    // p：求人の中身（募集要項）、co：会社情報、ag：紹介会社向け情報
+    const toRow = (r, p, co, ag) => {
+      const v = {
+        Id: r.id, Account_Text__c: r.company, JobName__c: p.name || r.name, JobSituation__c: '採用中',
+        EmploymentStatus__c: p.formOfEmployment || '', Address__c: md(p.location),
+        WorkLocation__c: [...new Set(PREFS.filter(pf => String(p.location || '').includes(pf)))].join(';'),
+        CompensationSystemDetails__c: md(p.salary), BusinessContents__c: [md(p.summary), p.others ? `【その他】\n${md(p.others)}` : ''].filter(String).join('\n\n'),
+        AdoptionElements__c: [['必須', p.requiredSkills], ['歓迎', p.preferredSkills], ['求める人物像', p.personality]].filter(([, x]) => String(x || '').trim()).map(([k, x]) => `【${k}】\n${md(x)}`).join('\n\n'),
+        WorkingTime__c: md(p.workingConditions), WelfareOfficer__c: md(p.welfare), TrialPeriod__c: p.trial || '',
+        SelectionProcess__c: md((ag || {}).selectionFlow),
+        CorporateInformation__c: md(co.businessDescription), NumberOfEmployees__c: co.numberOfEmployees || '',
+        'CorporateAccount__r.CompanyEstablishedDateFomula__c': co.foundedIn || '',
+        InformationUpdateDate__c: fmtDate(r.createdAt),
+        'HERP_紹介会社向け情報': Object.keys(AGENT_INFO).filter(k => String((ag || {})[k] || '').trim()).map(k => `【${AGENT_INFO[k]}】\n${md(ag[k])}`).join('\n\n'),
+        'HERP_求人URL': r.url, '取込日': today,
+      };
+      const rt = [p.location, p.workingConditions, p.others, p.welfare].join(' ');
+      v.RemoteWork__c = /フルリモート|完全在宅|フル在宅|完全リモート/.test(rt) ? 'フルリモート可' : /リモート|在宅/.test(rt) && !/(リモート|在宅)(勤務)?(不可|なし)/.test(rt) ? '一部リモート可' : '';
+      [v.AnnualIncomeLowerLimit__c, v.AnnualIncomMaxLimit__c] = salary(p.salary);
+      [v.JobType__c, v.JobTypeDetails__c] = classifyJob(v.JobName__c, '', r.company);
+      return H.map(h => String(v[h] == null ? '' : v[h]).slice(0, 45000));
+    };
+    // 公開の採用ページ（herp.careers）の中身を、エージェント画面と同じ形にそろえる
+    const careersJob = doc => {
+      const sec = name => { const h = [...doc.querySelectorAll('h2')].find(x => x.textContent.trim() === name); return h ? h.parentElement : null; };
+      const text = name => { const s = sec(name); if (!s) return ''; const c = s.querySelector('.with-heading__content') || s; return c.innerText || c.textContent || ''; };
+      const kv = {};
+      doc.querySelectorAll('table.kv-table tr').forEach(tr => { const th = tr.querySelector('th'), td = tr.querySelector('td'); if (th && td) kv[th.textContent.trim()] = (td.innerText || td.textContent || '').trim(); });
+      const name = (doc.querySelector('h1') || {}).textContent || doc.title.replace(/\s-\s[^-]+$/, '');
+      return {
+        p: { name: String(name).trim(), summary: text('仕事概要'), requiredSkills: text('必須スキル'), preferredSkills: text('歓迎スキル'), personality: text('求める人物像'),
+          salary: kv['給与'], location: kv['勤務地'], formOfEmployment: kv['雇用形態'], workingConditions: kv['勤務体系'], trial: kv['試用期間'], welfare: kv['福利厚生'], others: '' },
+        co: { businessDescription: kv['事業内容'], numberOfEmployees: kv['従業員数'], foundedIn: kv['設立年月'] },
+        company: kv['企業名'] || '',
+      };
+    };
+    const parse = html => new DOMParser().parseFromString(html, 'text/html');
+
+    ui(T, '読み込む会社の一覧を確認しています…', 0);
+    const urls = (await post({ stage: 'urls' })).urls || [];
+    const toks = [...new Set(urls.map(u => (u.match(/agent\.herp\.cloud\/p\/([\w-]+)/) || [])[1]).filter(Boolean))];
+    const careers = [...new Set(urls.map(u => (u.match(/^(https:\/\/herp\.careers\/v1\/[\w-]+)\/?$/) || [])[1]).filter(Boolean))];
+    if (!toks.length && !careers.length) throw new Error('「ATS取込URL」シートに、HERPのURLがありません。');
+
+    const live = [], skipped = [];
+    let ok = 0;
+    for (let k = 0; k < toks.length; k++) {
+      ui(T, `会社ごとの求人一覧を読んでいます… ${k + 1} / ${toks.length + careers.length}社（求人 ${live.length}件）`, (k + 1) / (toks.length + careers.length) * 20);
+      const res = await fetch('/p/' + toks[k]);
+      if (res.status === 429) { await sleep(60000); k--; continue; }
+      const d = res.ok ? herpData(await res.text()) : null;
+      const list = d && d.listRequisitionsResponse && d.listRequisitionsResponse.requisitions;
+      if (!list) { skipped.push(d && d.kind === 'EmailMismatch' ? '別のメールアドレス宛ての招待' : `開けない（${res.status}）`); if (k >= 2 && !ok) throw new Error('HERPにログインしていないようです。ログインしてからもう一度押してください。'); await sleep(400); continue; }
+      ok++;
+      const company = (d.inviterCompany || {}).name || '';
+      list.forEach(q => live.push({ id: 'HP-' + q.id, name: q.name, createdAt: q.createdAt, company, url: `https://agent.herp.cloud/p/${toks[k]}/requisitions/id/${q.id}`, path: `/p/${toks[k]}/requisitions/id/${q.id}` }));
+      await sleep(400);
+    }
+    for (let k = 0; k < careers.length; k++) {
+      ui(T, `会社ごとの求人一覧を読んでいます… ${toks.length + k + 1} / ${toks.length + careers.length}社（求人 ${live.length}件）`, (toks.length + k + 1) / (toks.length + careers.length) * 20);
+      const r = { status: 0 }; // 公開の採用ページはブラウザから直接読めないため、今は読み込まない（必要になったらサーバー経由で対応）
+      if (r.status !== 200) { skipped.push('公開の採用ページ（herp.careers）は今は読み込めません'); continue; }
+      const doc = parse(r.html);
+      const slug = careers[k].split('/').pop();
+      const company = doc.title.replace(/\s*の全ての求人一覧.*$/, '').trim();
+      [...new Set([...doc.querySelectorAll('a')].map(a => a.getAttribute('href') || '').filter(h => new RegExp(`^/v1/${slug}/[\\w-]+$`).test(h) && !/requisition-groups/.test(h)))]
+        .forEach(h => live.push({ id: 'HP-C-' + h.split('/').pop(), name: '', createdAt: '', company, url: 'https://herp.careers' + h, careers: true }));
+    }
+    const seen = new Set();
+    const jobs = live.filter(r => !seen.has(r.id) && seen.add(r.id));
+    if (!jobs.length) throw new Error('求人が1件も読めませんでした。');
+
+    const have = new Map(((await post({ stage: 'ids' })).ids || []).map(([id, d, got]) => [id, got || '']));
+    const week = fmtDate(new Date(Date.now() - 7 * 86400e3).toISOString());
+    const todo = jobs.filter(r => !have.has(r.id) || !have.get(r.id) || have.get(r.id) <= week);
+    const first = !have.size;
+    if (first) await post({ stage: 'start', headers: H }); // 初回は作業用シートに書いて、最後にまとめて入れ替える
+    let sent = 0;
+    let buf = [], got = 0, added = 0, updated = 0, failed = 0;
+    const flush = async () => {
+      if (!buf.length) return;
+      const d = first ? await post({ stage: 'rows', rows: buf }) : await post({ stage: 'upsert', rows: buf });
+      if (first) { sent += buf.length; added = sent; } else { added += d.added || 0; updated += d.updated || 0; }
+      buf = [];
+    };
+    for (const r of todo) {
+      const left = Math.ceil((todo.length - got) * 0.7 / 60);
+      ui(T, `新しい求人・しばらく読んでいない求人を読み込み中… ${got} / ${todo.length}件\n（あと約${left}分。タブは開いたままにしてください）`, 20 + (todo.length ? got / todo.length * 72 : 72));
+      try {
+        if (r.careers) {
+          const x = await post({ stage: 'proxy', url: r.url });
+          if (x.status === 200) { const c = careersJob(parse(x.html)); buf.push(toRow(Object.assign({}, r, { company: c.company || r.company }), c.p, c.co, null)); } else failed++;
+        } else {
+          let res = await fetch(r.path);
+          if (res.status === 429) { await sleep(60000); res = await fetch(r.path); }
+          const d = res.ok ? herpData(await res.text()) : null;
+          const g = d && d.getRequisitionResponse;
+          if (g && g.requisition) buf.push(toRow(r, g.requisition.requisitionPublicProperties || {}, g.companyProfile || {}, g.requisition.requisitionInfoForAgent || {}));
+          else failed++;
+          await sleep(400);
+        }
+      } catch (e) { failed++; }
+      got++;
+      if (buf.length >= 40) await flush();
+    }
+    await flush();
+    if (first) { if (!sent) throw new Error('求人が1件も読めませんでした。'); await post({ stage: 'finish', expect: sent }); }
+    ui(T, '掲載が終わった求人を整理しています…', 95);
+    const pr = await post({ stage: 'prune', keep: jobs.map(r => r.id) });
+    const skipNote = skipped.length ? `\n読めなかった会社 ${skipped.length}社（${[...new Set(skipped)].join('・')}）` : '';
+    return `HERPの求人を更新しました（${ok}社・全${pr.n}件）。\n新規 ${added}件・読み直し ${updated}件・掲載終了で削除 ${pr.removed}件${failed ? `・読めなかった求人 ${failed}件` : ''}${skipNote}\n管理画面で「再読み込み」を押すと反映されます。`;
+  }
+
   try {
-    const msg = SRC === 'HRMOS' ? await runHrmos() : await runTalentio();
+    const msg = SRC === 'HRMOS' ? await runHrmos() : SRC === 'HERP' ? await runHerp() : await runTalentio();
     ui('更新が終わりました', msg, 100, true);
   } catch (e) {
     ui('更新できませんでした', String(e && e.message || e), null, true);
