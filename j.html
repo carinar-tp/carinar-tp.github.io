@@ -62,8 +62,9 @@
   textarea { width: 100%; margin-top: 12px; padding: 8px; border: 1px solid var(--line); border-radius: 6px;
              font: inherit; font-size: 14px; resize: vertical; min-height: 44px; }
   .btns { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
-  .cmnote { font-size: 12px; color: #b06000; margin-top: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .cmnote button { font: inherit; font-size: 12px; padding: 4px 12px; border-radius: 6px; border: 1px solid #b06000; background: #fff7e6; color: #b06000; cursor: pointer; }
+  .cmnote { font-size: 12px; color: var(--sub); margin-top: 4px; }
+  .cmnote.ok { color: #137333; }
+  .cmnote.ng { color: #c5221f; }
   .btns button { flex: 1; min-width: 90px; padding: 10px 8px; border-radius: 6px; border: 1px solid var(--line);
                  background: #fff; color: var(--text); font: inherit; font-size: 14px; cursor: pointer; }
   .btns button.on.b-応募したい { background: #188038; border-color: #188038; color: #fff; }
@@ -139,30 +140,54 @@
     $('error').innerHTML = msg;
   }
 
-  // 書きかけのコメントはこの端末に保存（送信前にページを閉じたり、読み直したりしても消えないように）
+  // コメントは書いたそばから自動で保存（シートに残るので、どの端末から開いても同じものが出る）
+  // 通信できなかったときのために、保存が済むまではこの端末にも控えておく
   const DRAFT_KEY = 'jobs.draft.' + TOKEN;
   let DRAFTS = {};
   try { DRAFTS = JSON.parse(localStorage.getItem(DRAFT_KEY) || '{}') || {}; } catch (e) {}
   const saveDrafts = () => { try { localStorage.setItem(DRAFT_KEY, JSON.stringify(DRAFTS)); } catch (e) {} };
   const draftOf = j => (DRAFTS[j.id] != null ? DRAFTS[j.id] : (j.comment || ''));
-  const answered = j => DATA.statuses.includes(j.status); // statuses は回答の選択肢（未回答は含まない）
-  function cmNoteHtml(j, i) {
-    return answered(j)
-      ? `コメントはまだ送信されていません <button data-cmsend="${i}">コメントを送信</button>`
-      : 'コメントは、下のボタン（応募したい など）を押すと一緒に送信されます';
+  const timers = {};
+  function setNote(i, text, cls) {
+    const n = $('cmn' + i);
+    if (!n) return;
+    n.textContent = text || '';
+    n.className = 'cmnote' + (cls ? ' ' + cls : '');
+    n.hidden = !text;
   }
-  function updateNote(i) {
-    const j = DATA.jobs[i], t = $('cm' + i), n = $('cmn' + i);
-    if (!j || !t || !n) return;
-    const dirty = t.value !== (j.comment || '');
-    n.hidden = !dirty;
-    if (dirty) n.innerHTML = cmNoteHtml(j, i);
+  function queueSave(i, wait) {
+    clearTimeout(timers[i]);
+    timers[i] = setTimeout(() => saveComment(i), wait);
+  }
+  async function saveComment(i) {
+    clearTimeout(timers[i]);
+    const j = DATA.jobs[i], t = $('cm' + i);
+    if (!j || !t || PREVIEW) return;
+    const text = t.value;
+    if (text === (j.comment || '') && DRAFTS[j.id] == null) return;
+    setNote(i, '保存中…');
+    try {
+      const res = await fetch(API, { method: 'POST', credentials: 'omit', body: JSON.stringify({ action: 'comment', t: TOKEN, jobId: j.id, comment: text }) });
+      const r = await res.json();
+      if (!r.ok) throw new Error(r.error || 'error');
+      j.comment = r.comment;
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify(DATA)); } catch (e) {}
+      const now = $('cm' + i);
+      if (now && now.value === text) { delete DRAFTS[j.id]; saveDrafts(); setNote(i, 'コメントを保存しました', 'ok'); setTimeout(() => { const n = $('cmn' + i); if (n && n.classList.contains('ok')) setNote(i, ''); }, 2500); }
+    } catch (err) {
+      setNote(i, 'コメントを保存できませんでした。通信環境をご確認ください（もう一度入力すると再度保存します）', 'ng');
+    }
+  }
+  // 前に保存しきれなかったコメントがあれば、開いたときに保存し直す
+  function flushDrafts() {
+    if (PREVIEW) return;
+    DATA.jobs.forEach((j, i) => { if (DRAFTS[j.id] != null && DRAFTS[j.id] !== (j.comment || '') && $('cm' + i)) queueSave(i, 500); });
   }
   async function sendAnswer(i, status) {
     const j = DATA.jobs[i];
     const comment = $('cm' + i).value;
     $('btns' + i).querySelectorAll('button').forEach(x => x.disabled = true);
-    const sb = $('cmn' + i).querySelector('button'); if (sb) sb.disabled = true;
+    clearTimeout(timers[i]);
     try {
       const res = await fetch(API, {
         method: 'POST',
@@ -176,11 +201,10 @@
       delete DRAFTS[j.id]; saveDrafts();
       try { localStorage.setItem(CACHE_KEY, JSON.stringify(DATA)); } catch (e) {}
       updateCard(i);
-      updateNote(i);
+      setNote(i, '');
       return r;
     } catch (err) {
       $('btns' + i).querySelectorAll('button').forEach(x => x.disabled = false);
-      if (sb) sb.disabled = false;
       toast('送信できませんでした。時間をおいてお試しください。');
       return null;
     }
@@ -203,7 +227,7 @@
       <span id="badge${i}">${badge}</span>
       ${fields ? `<details><summary>求人票を見る</summary>${fields}</details>` : ''}
       <textarea id="cm${i}" data-cm="${i}" placeholder="コメント（任意）"${PREVIEW ? ' readonly' : ''}>${esc(draftOf(j))}</textarea>
-      <div class="cmnote" id="cmn${i}"${draftOf(j) === (j.comment || '') ? ' hidden' : ''}>${cmNoteHtml(j, i)}</div>
+      <div class="cmnote" id="cmn${i}" hidden></div>
       <div class="btns" id="btns${i}">${btns}</div>
     </div>`;
   }
@@ -291,6 +315,7 @@
     if (d.footer) { $('footer').textContent = d.footer; $('footer').hidden = false; }
     render();
     open.forEach(id => { const c = document.getElementById(id); if (c && c.querySelector('details')) c.querySelector('details').open = true; });
+    flushDrafts();
     $('loading').hidden = true;
     $('content').hidden = false;
   }
@@ -330,17 +355,16 @@
     const i = Number(t.dataset.cm), j = DATA.jobs[i];
     if (t.value === (j.comment || '')) delete DRAFTS[j.id]; else DRAFTS[j.id] = t.value;
     saveDrafts();
-    updateNote(i);
+    setNote(i, '入力中…（自動で保存されます）');
+    queueSave(i, 1200);
+  });
+  // 入力欄から離れたらすぐ保存
+  $('list').addEventListener('focusout', e => {
+    const t = e.target.closest('textarea[data-cm]');
+    if (t && !PREVIEW) saveComment(Number(t.dataset.cm));
   });
   $('list').addEventListener('click', async e => {
     if (PREVIEW) return;
-    const cs = e.target.closest('button[data-cmsend]');
-    if (cs) {
-      const i = Number(cs.dataset.cmsend);
-      const r = await sendAnswer(i, DATA.jobs[i].status);
-      if (r) toast('コメントを送信しました');
-      return;
-    }
     const b = e.target.closest('button[data-s]');
     if (!b) return;
     const r = await sendAnswer(Number(b.dataset.i), b.dataset.s);
