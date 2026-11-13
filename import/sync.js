@@ -138,8 +138,8 @@ function classifyJob(title, sub, company) {
   if (window.__jobsyncRunning) { ui('求人の更新', 'すでに実行中です。終わるまでお待ちください。', null, false); return; }
   if (!CFG.exec || !CFG.key) { ui('求人の更新', 'ブックマークの設定が正しくありません。管理画面の「HRMOS・Talentio更新」から登録し直してください。', null, true); return; }
   const host = location.host;
-  const SRC = /hrmos\.co$/.test(host) && location.pathname.startsWith('/agent') ? 'HRMOS' : /talentio\.com$/.test(host) ? 'TALENTIO' : /^agent\.herp\.cloud$/.test(host) ? 'HERP' : '';
-  if (!SRC) { ui('求人の更新', 'HRMOS・Talentio・HERPのエージェント画面（ログイン後）で押してください。', null, true); return; }
+  const SRC = /hrmos\.co$/.test(host) && location.pathname.startsWith('/agent') ? 'HRMOS' : /talentio\.com$/.test(host) ? 'TALENTIO' : /^agent\.herp\.cloud$/.test(host) ? 'HERP' : /(^|\.)agent\.persona-ats\.com$/.test(host) ? 'PERSONA' : '';
+  if (!SRC) { ui('求人の更新', 'HRMOS・Talentio・HERP・PERSONAのエージェント画面（ログイン後）で押してください。', null, true); return; }
   window.__jobsyncRunning = true;
 
   const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -469,8 +469,129 @@ function classifyJob(title, sub, company) {
     return `HERPの求人を更新しました（${ok}社・全${pr.n}件）。\n新規 ${added}件・読み直し ${updated}件・掲載終了で削除 ${pr.removed}件${failed ? `・読めなかった求人 ${failed}件` : ''}${skipNote}\n管理画面で「再読み込み」を押すと反映されます。`;
   }
 
+  // ===== PERSONA：企業ごとの求人一覧を読み、新しい求人・しばらく読んでいない求人だけ1件ずつ読む =====
+  async function runPersona() {
+    const T = 'PERSONAの求人を更新中';
+    const H = ['Id','Account_Text__c','JobName__c','JobType__c','JobTypeDetails__c','JobSituation__c','EmploymentStatus__c','WorkLocation__c','Address__c',
+      'AnnualIncomeLowerLimit__c','AnnualIncomMaxLimit__c','CompensationSystemDetails__c','BusinessContents__c','AdoptionElements__c',
+      'WorkingTime__c','HolidayVacation__c','WelfareOfficer__c','Insurance__c','PassiveSmokingPreventionMeasures__c',
+      'EmploymentPeriodDetails__c','TrialPeriod__c','SelectionProcess__c','RemoteWork__c','CorporateInformation__c','NumberOfEmployees__c',
+      'CorporateAccount__r.CompanyEstablishedDateFomula__c','InformationUpdateDate__c',
+      'PERSONA_紹介会社向け情報','PERSONA_求人URL','取込日'];
+    const API = 'https://api.persona-ats.com/agent-prod/agents/';
+    // 画面と同じログイン情報（ブラウザに保存されている分）を使う。パスワードは扱わない
+    const auth = () => {
+      const ks = Object.keys(localStorage);
+      const user = localStorage.getItem(ks.find(k => /^CognitoIdentityServiceProvider\..+\.LastAuthUser$/.test(k)) || '');
+      const tok = user && localStorage.getItem(ks.find(k => k.endsWith('.' + user + '.idToken')) || '');
+      if (!user || !tok) throw new Error('PERSONAにログインしていないようです。ログインしてからもう一度押してください。');
+      return { user, tok };
+    };
+    const get = async path => {
+      for (let a = 1; a <= 3; a++) {
+        const { tok } = auth();
+        const r = await fetch(API + path, { headers: { Authorization: tok } });
+        if (r.status === 401 || r.status === 403) throw new Error('PERSONAのログインが切れています。画面を読み込み直してログインし、もう一度押してください。');
+        if (r.status === 429 || r.status >= 500) { await sleep(a === 1 ? 5000 : 60000); continue; }
+        if (!r.ok) throw new Error(`PERSONAから読めませんでした（${r.status}）`);
+        return r.json();
+      }
+      throw new Error('PERSONAが込み合っているようです。少し待ってからもう一度押してください。');
+    };
+    const salary = txt => {
+      const t = String(txt || '').normalize('NFKC');
+      const yen = (n, u) => { n = parseFloat(String(n).replace(/,/g, '')); if (!n) return ''; return Math.round(/万/.test(u || '') || n < 10000 ? n * 10000 : n); };
+      let m = t.match(/年収[^\d\n]{0,12}([\d,.]+)\s*(万円|万|円)?\s*[~〜～\-ー－]\s*[¥\\]?\s*([\d,.]+)\s*(万円|万|円)?/);
+      if (m) return [yen(m[1], m[2] || m[4]), yen(m[3], m[4])];
+      m = t.match(/年収[^\d\n]{0,12}([\d,.]+)\s*(万円|万|円)?/);
+      return m ? [yen(m[1], m[2]), ''] : ['', ''];
+    };
+    const tidy = v => String(v || '').replace(/\r/g, '').replace(/[ \t　]{2,}/g, ' ').replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim();
+    const RE = { req: /応募|必須|歓迎|求める|要件|資格|スキル|募集要項|人物/, sel: /選考|面接/, biz: /業務内容|仕事内容|職務内容|ミッション|ポジション/ };
+    // 表示区分：1＝全員向け、2＝紹介会社向け、3＝直接応募の人向け（3は読まない）
+    const toRow = (c, q, d) => {
+      const p = (d.position || [])[0] || {};
+      const co = (d.clients || [])[0] || {};
+      const on = k => String(p[k + '_display'] == null ? '1' : p[k + '_display']) !== '3';
+      const f = k => on(k) ? tidy(p[k]) : '';
+      const items = (d.position_items || []).filter(x => String(x.body || '').trim());
+      const pub = items.filter(x => String(x.display) === '1'), ag = items.filter(x => String(x.display) === '2');
+      const sec = arr => arr.map(x => `【${tidy(x.title)}】\n${tidy(x.body)}`).join('\n\n');
+      const req = pub.filter(x => RE.req.test(x.title) && !RE.biz.test(x.title)), sel = pub.filter(x => RE.sel.test(x.title) && !req.includes(x));
+      const rest = pub.filter(x => !req.includes(x) && !sel.includes(x));
+      const links = (d.hp_urls || []).filter(x => x.url).map(x => `${tidy(x.title)} ${x.url}`).join('\n');
+      const v = {
+        Id: 'PS-' + q.position_id, Account_Text__c: co.client_name || c.client_name, JobName__c: tidy(p.title || q.title), JobSituation__c: '採用中',
+        EmploymentStatus__c: f('employment_type'), Address__c: f('place'),
+        WorkLocation__c: [...new Set(PREFS.filter(pf => (f('place') + ' ' + (p.title || '')).includes(pf) || (p.title || '').includes(pf.replace(/[都府県]$/, '')) && pf !== '京都府'))].join(';'),
+        CompensationSystemDetails__c: f('salary'),
+        BusinessContents__c: [tidy(p.catch_copy), sec(rest)].filter(String).join('\n\n'),
+        AdoptionElements__c: sec(req),
+        WorkingTime__c: f('work_schedule'), HolidayVacation__c: f('holiday'), WelfareOfficer__c: f('benefits'), Insurance__c: f('insurance'),
+        PassiveSmokingPreventionMeasures__c: f('smoke'), EmploymentPeriodDetails__c: f('contract_period'), TrialPeriod__c: f('probationary_period'),
+        SelectionProcess__c: sec(sel),
+        CorporateInformation__c: tidy(co.business_detail), NumberOfEmployees__c: tidy(co.member),
+        'CorporateAccount__r.CompanyEstablishedDateFomula__c': tidy(co.establish),
+        InformationUpdateDate__c: '',
+        'PERSONA_紹介会社向け情報': [sec(ag), links ? `【参考URL】\n${links}` : ''].filter(String).join('\n\n'),
+        'PERSONA_求人URL': 'https://www.agent.persona-ats.com/', '取込日': today,
+      };
+      const rt = [p.place, p.work_schedule, p.benefits, sec(rest)].join(' ');
+      v.RemoteWork__c = /フルリモート|完全在宅|フル在宅|完全リモート/.test(rt) ? 'フルリモート可' : /リモート|在宅/.test(rt) && !/(リモート|在宅)(勤務)?(不可|なし)/.test(rt) ? '一部リモート可' : '';
+      [v.AnnualIncomeLowerLimit__c, v.AnnualIncomMaxLimit__c] = salary(p.salary);
+      [v.JobType__c, v.JobTypeDetails__c] = classifyJob(v.JobName__c, '', v.Account_Text__c);
+      return H.map(h => String(v[h] == null ? '' : v[h]).slice(0, 45000));
+    };
+
+    ui(T, '企業の一覧を読んでいます…', 0);
+    const { user } = auth();
+    const clients = (await get(`search_client_list/${user}/`)).clients || [];
+    if (!clients.length) throw new Error('企業が1社も読めませんでした。');
+    const jobs = [];
+    for (let k = 0; k < clients.length; k++) {
+      const c = clients[k];
+      const list = (await get(`search_position_list/${user}/?client_id=${encodeURIComponent(c.client_id)}`)).positions || [];
+      list.filter(q => String(q.available) === '1').forEach(q => jobs.push({ id: 'PS-' + q.position_id, c, q }));
+      ui(T, `企業ごとの求人一覧を読んでいます… ${k + 1} / ${clients.length}社（求人 ${jobs.length}件）`, (k + 1) / clients.length * 15);
+      await sleep(300);
+    }
+    if (!jobs.length) throw new Error('求人が1件も読めませんでした。');
+
+    const have = new Map(((await post({ stage: 'ids' })).ids || []).map(([id, d, got]) => [id, got || '']));
+    const week = fmtDate(new Date(Date.now() - 7 * 86400e3).toISOString());
+    const first = !have.size || !!CFG.full; // CFG.full：全件を読み直す（項目の割り当てを直したとき用）
+    const todo = first ? jobs : jobs.filter(r => !have.has(r.id) || !have.get(r.id) || have.get(r.id) <= week);
+    if (first) await post({ stage: 'start', headers: H });
+    let buf = [], got = 0, sent = 0, added = 0, updated = 0, failed = 0;
+    const flush = async () => {
+      if (!buf.length) return;
+      const d = first ? await post({ stage: 'rows', rows: buf }) : await post({ stage: 'upsert', rows: buf });
+      if (first) { sent += buf.length; added = sent; } else { added += d.added || 0; updated += d.updated || 0; }
+      buf = [];
+    };
+    for (const r of todo) {
+      const left = Math.ceil((todo.length - got) * 1.2 / 60);
+      ui(T, `新しい求人・しばらく読んでいない求人を読み込み中… ${got} / ${todo.length}件\n（あと約${left}分。タブは開いたままにしてください）`, 15 + (todo.length ? got / todo.length * 77 : 77));
+      try {
+        const d = await get(`search_position_detail/${user}/?position_id=${encodeURIComponent(r.q.position_id)}&client_id=${encodeURIComponent(r.c.client_id)}`);
+        if (d && (d.position || []).length) buf.push(toRow(r.c, r.q, d)); else failed++;
+      } catch (e) {
+        if (/ログイン/.test(String(e && e.message))) { await flush().catch(() => {}); throw e; }
+        failed++;
+      }
+      got++;
+      if (buf.length >= 40) await flush();
+      await sleep(600);
+    }
+    await flush();
+    if (first) { if (!sent) throw new Error('求人が1件も読めませんでした。'); await post({ stage: 'finish', expect: sent }); }
+    ui(T, '掲載が終わった求人を整理しています…', 95);
+    const pr = failed > jobs.length / 2 ? { n: jobs.length, removed: 0 } : await post({ stage: 'prune', keep: jobs.map(r => r.id) });
+    return `PERSONAの求人を更新しました（${clients.length}社・全${pr.n}件）。\n新規 ${added}件・読み直し ${updated}件・掲載終了で削除 ${pr.removed}件${failed ? `・読めなかった求人 ${failed}件` : ''}\n管理画面で「再読み込み」を押すと反映されます。`;
+  }
+
   try {
-    const msg = SRC === 'HRMOS' ? await runHrmos() : SRC === 'HERP' ? await runHerp() : await runTalentio();
+    const msg = SRC === 'HRMOS' ? await runHrmos() : SRC === 'HERP' ? await runHerp() : SRC === 'PERSONA' ? await runPersona() : await runTalentio();
     ui('更新が終わりました', msg, 100, true);
   } catch (e) {
     ui('更新できませんでした', String(e && e.message || e), null, true);
