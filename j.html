@@ -33,7 +33,11 @@
   .ktabs button { flex: 1; font: inherit; font-size: 15px; font-weight: bold; padding: 10px 8px; border: 0; border-bottom: 3px solid transparent;
                   background: none; color: var(--sub); cursor: pointer; }
   .ktabs button.on { color: var(--main); border-bottom-color: var(--main); }
-  .ktabs button[data-kind="参考"].on { color: #3c4043; border-bottom-color: #9aa0a6; }
+  .ktabs button[data-stage="選考中"].on { color: #188038; border-bottom-color: #188038; }
+  .ktabs button[data-stage="選考終了"].on { color: #3c4043; border-bottom-color: #9aa0a6; }
+  .tags span.ref { background: #fff; color: #5f6368; border: 1px solid #dadce0; }
+  .badge.stage-選考中 { background: #e6f4ea; color: #188038; font-weight: bold; margin-right: 4px; }
+  .badge.stage-選考終了 { background: #f1f3f4; color: #5f6368; margin-right: 4px; }
   .ktabs .n { font-weight: normal; font-size: 13px; margin-left: 2px; }
   .kdesc { color: var(--sub); font-size: 13px; margin: 0 0 12px; }
   .sortbar { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin: -4px 0 12px; font-size: 13px; color: var(--sub); }
@@ -224,7 +228,7 @@
     const badge = `<span class="badge s-${esc(j.status)}">${esc(j.status)}</span>`;
     if (j.closed) {
       return `<div class="card closed"><div class="top"><h2>${esc(j.title)}</h2><span class="date">${esc(j.sentAt)}</span></div>
-        ${badge}<div class="closedNote">この求人は現在掲載を終了しています。</div></div>`;
+        ${stageOf(j) === '未応募' ? badge : stageBadge(j)}<div class="closedNote">この求人は現在掲載を終了しています。</div></div>`;
     }
     const fields = j.sections.map(g =>
       `<h3>${esc(g.name)}</h3><dl>${g.fields.map(f => `<dt>${esc(f.label)}</dt><dd>${linkify(f.value)}</dd>`).join('')}</dl>`).join('');
@@ -234,11 +238,11 @@
       <div class="top"><div><h2>${esc(j.title)}</h2>${j.sub ? `<div class="sub">${esc(j.sub)}</div>` : ''}</div>
       <span class="date">${esc(j.sentAt)}</span></div>
       ${tagsHtml(j)}
-      <span id="badge${i}">${badge}</span>
+      ${stageOf(j) === '未応募' ? `<span id="badge${i}">${badge}</span>` : stageBadge(j)}
       ${fields ? `<details><summary>求人票を見る</summary>${fields}</details>` : ''}
       <textarea id="cm${i}" data-cm="${i}" placeholder="コメント（任意）"${PREVIEW ? ' readonly' : ''}>${esc(draftOf(j))}</textarea>
       <div class="cmnote" id="cmn${i}" hidden></div>
-      <div class="btns" id="btns${i}">${btns}</div>
+      ${stageOf(j) === '未応募' ? `<div class="btns" id="btns${i}">${btns}</div>` : ''}
     </div>`;
   }
 
@@ -250,6 +254,7 @@
     const t = [];
     if (k.ind) t.push(`<span${SORT === 'ind' ? ' class="hl"' : ''}>業界：${esc(k.ind)}</span>`);
     if (k.type) t.push(`<span${SORT === 'type' ? ' class="hl"' : ''}>職種：${esc(k.type)}</span>`);
+    if (j.kind === '参考') t.push('<span class="ref">参考求人</span>');
     (j.tags || []).forEach(x => t.push(`<span class="ut">#${esc(x)}</span>`));
     return t.length ? `<div class="tags">${t.join('')}</div>` : '';
   }
@@ -272,17 +277,21 @@
     return open.concat(items.filter(([j]) => j.closed)); // 掲載終了は最後
   }
 
-  // 「ご提案求人」（応募をおすすめ）と「参考求人」をタブで切り替えて表示。参考がなければタブなし
-  const KIND_HEAD = {
-    '提案': ['ご提案求人', '担当者からのおすすめです。ぜひご応募をご検討ください。', ''],
-    '参考': ['参考求人', 'ご参考までにお送りしている求人です。気になるものがあればお気軽にお知らせください。', ' ref'],
+  // 選考状況（担当者が管理画面で設定）で「未応募／選考中／選考終了」のタブに分けて表示。
+  // 選考中・選考終了の求人がなければタブは出さない。掲載が終わった未応募の求人は「選考終了」に入れる
+  const STAGES = ['未応募', '選考中', '選考終了'];
+  const STAGE_DESC = {
+    '未応募': 'まだご応募いただいていない求人です。気になる求人があれば「応募したい」を押してください。',
+    '選考中': '現在選考が進んでいる求人です。',
+    '選考終了': '選考が終了した求人と、掲載が終了した求人です。',
   };
+  const stageOf = j => (j.sel === '選考中' ? '選考中' : (j.sel === '選考終了' || j.closed) ? '選考終了' : '未応募');
+  const stageBadge = j => (stageOf(j) === '未応募' ? '' : `<span class="badge stage-${stageOf(j)}">${stageOf(j)}</span>`);
   // タグで絞り込み（担当者がタグを付けた求人があるときだけ、上にボタンを出す）
   let TAG = '';
-  const kindOf = j => (j.kind === '参考' ? '参考' : '提案');
-  let KIND = ''; // 表示中のタブ（参考求人があるときだけ使う）
-  const hasRef = () => DATA.jobs.some(j => kindOf(j) === '参考');
-  const inTab = j => !KIND || kindOf(j) === KIND;
+  let STAGE = ''; // 表示中のタブ（選考中・選考終了の求人があるときだけ使う）
+  const hasStages = () => DATA.jobs.some(j => stageOf(j) !== '未応募');
+  const inTab = j => !STAGE || stageOf(j) === STAGE;
   function renderTagbar() {
     const n = {};
     const base = DATA.jobs.filter(inTab);
@@ -295,16 +304,16 @@
   }
   function render() {
     if (!DATA.jobs.length) { $('tagbar').hidden = true; $('ktabs').hidden = true; $('kdesc').hidden = true; $('list').innerHTML = '<div class="state">現在ご紹介中の求人はありません。</div>'; return; }
-    // タブ（参考求人があるときだけ）。提案が0件なら参考タブから開く
-    if (hasRef()) {
-      const cnt = k => DATA.jobs.filter(j => kindOf(j) === k).length;
-      if (!KIND || !cnt(KIND)) KIND = cnt('提案') ? '提案' : '参考';
-      $('ktabs').innerHTML = ['提案', '参考'].filter(k => cnt(k)).map(k =>
-        `<button data-kind="${k}"${KIND === k ? ' class="on"' : ''}>${KIND_HEAD[k][0]}<span class="n">（${cnt(k)}）</span></button>`).join('');
-      $('kdesc').textContent = KIND_HEAD[KIND][1];
+    // タブ（選考中・選考終了の求人があるときだけ）。最初は求人のある一番左のタブを開く
+    if (hasStages()) {
+      const cnt = k => DATA.jobs.filter(j => stageOf(j) === k).length;
+      if (!STAGE) STAGE = STAGES.find(k => cnt(k)) || STAGES[0];
+      $('ktabs').innerHTML = STAGES.map(k =>
+        `<button data-stage="${k}"${STAGE === k ? ' class="on"' : ''}>${k}<span class="n">（${cnt(k)}）</span></button>`).join('');
+      $('kdesc').textContent = STAGE_DESC[STAGE];
       $('ktabs').hidden = $('kdesc').hidden = false;
     } else {
-      KIND = '';
+      STAGE = '';
       $('ktabs').hidden = $('kdesc').hidden = true;
     }
     renderTagbar();
@@ -312,10 +321,10 @@
     const items = DATA.jobs.map((j, i) => [j, i]).filter(([j]) => !TAG || (j.tags || []).includes(TAG));
     $('sortbar').hidden = DATA.jobs.filter(inTab).length < 2;
     $('sortSel').value = SORT;
-    if (!KIND) { $('list').innerHTML = sortItems(items).map(([j, i]) => cardHtml(j, i)).join(''); return; }
-    $('list').innerHTML = ['提案', '参考'].map(k => {
-      const g = sortItems(items.filter(([j]) => kindOf(j) === k));
-      return `<div class="kpane" data-pane="${k}"${KIND === k ? '' : ' hidden'}>` +
+    if (!STAGE) { $('list').innerHTML = sortItems(items).map(([j, i]) => cardHtml(j, i)).join(''); return; }
+    $('list').innerHTML = STAGES.map(k => {
+      const g = sortItems(items.filter(([j]) => stageOf(j) === k));
+      return `<div class="kpane" data-pane="${k}"${STAGE === k ? '' : ' hidden'}>` +
         (g.length ? g.map(([j, i]) => cardHtml(j, i)).join('') : '<div class="state">該当する求人はありません。</div>') + '</div>';
     }).join('');
   }
@@ -398,9 +407,9 @@
   });
 
   $('ktabs').addEventListener('click', e => {
-    const b = e.target.closest('[data-kind]');
-    if (!b || b.dataset.kind === KIND) return;
-    KIND = b.dataset.kind;
+    const b = e.target.closest('[data-stage]');
+    if (!b || b.dataset.stage === STAGE) return;
+    STAGE = b.dataset.stage;
     TAG = '';
     rerender();
     const y = $('kdesc').offsetTop - $('ktabs').offsetHeight - 8;
