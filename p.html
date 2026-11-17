@@ -5,12 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
 <meta name="referrer" content="no-referrer">
-<title>求人のご紹介</title>
+<title>求人｜CARINAR（キャリナー）</title>
+<meta property="og:title" content="求人｜CARINAR（キャリナー）">
+<meta property="og:site_name" content="CARINAR（キャリナー）">
+<meta property="og:type" content="website">
+<link rel="icon" href="https://carinar.com/images/favicon-carinar.ico">
+<link rel="shortcut icon" href="https://carinar.com/images/favicon-carinar.ico">
 <style>
   body { margin:0; background:#f4f5f7; color:#1f2328; font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP","Yu Gothic UI",sans-serif; line-height:1.75; -webkit-text-size-adjust:100%; }
   .wrap { max-width:640px; margin:0 auto; padding:18px 14px 40px; }
   h1 { font-size:19px; margin:6px 2px 14px; }
-  .lead { color:#57606a; font-size:13px; margin:0 2px 14px; }
+  .lead { color:#3d444d; font-size:13px; margin:0 0 14px; background:#fff8e1; border-radius:10px; padding:10px 12px; }
   .job { background:#fff; border-radius:14px; padding:14px 16px; margin-bottom:14px; box-shadow:0 1px 2px rgba(0,0,0,.05); }
   .no { color:#57606a; font-size:12px; }
   .co { font-weight:700; font-size:16px; margin:2px 0 8px; }
@@ -38,8 +43,7 @@
   if (!/^[A-Za-z0-9]{16,40}$/.test(token)) { fail(); return; }
   fetch(API + '?api=pack&p=' + token).then(function (r) { return r.json(); }).then(function (d) {
     if (!d || d.error || !d.jobs || !d.jobs.length) { fail(); return; }
-    document.title = d.name || '求人のご紹介';
-    var h = '<h1>【' + esc(d.name) + '】</h1><p class="lead">求人は ' + d.jobs.length + '件です。詳細は面談にてお伝えします。</p>';
+    var h = '<h1>【' + esc(d.name) + '】</h1><p class="lead">こちらの求人はあくまで一例です。<br>このほかにも、ご経験・志向性やお考えに基づいたご提案ができる可能性がございます。詳細は面談にてお伝えします。</p>';
     d.jobs.forEach(function (j, i) {
       var body = '<dt>仕事内容</dt><dd>' + esc(j.w) + '</dd>';
       (j.x || []).forEach(function (e) { body += '<dt>' + esc(e.k) + '</dt><dd>' + esc(e.v) + '</dd>'; });
