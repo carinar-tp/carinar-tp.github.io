@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta name="referrer" content="no-referrer">
+<title>求人のご紹介</title>
+<style>
+  body { margin:0; background:#f4f5f7; color:#1f2328; font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP","Yu Gothic UI",sans-serif; line-height:1.75; -webkit-text-size-adjust:100%; }
+  .wrap { max-width:640px; margin:0 auto; padding:18px 14px 40px; }
+  h1 { font-size:19px; margin:6px 2px 14px; }
+  .lead { color:#57606a; font-size:13px; margin:0 2px 14px; }
+  .job { background:#fff; border-radius:14px; padding:14px 16px; margin-bottom:14px; box-shadow:0 1px 2px rgba(0,0,0,.05); }
+  .no { color:#57606a; font-size:12px; }
+  .co { font-weight:700; font-size:16px; margin:2px 0 8px; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px; }
+  .chip { background:#eef4ff; color:#1a56c4; border-radius:999px; padding:2px 10px; font-size:13px; }
+  dt { color:#57606a; font-size:12px; margin-top:10px; }
+  dd { margin:0; white-space:pre-wrap; word-break:break-word; font-size:15px; }
+  .more { max-height:8.8em; overflow:hidden; position:relative; }
+  .more.cut::after { content:""; position:absolute; left:0; right:0; bottom:0; height:2.6em; background:linear-gradient(rgba(255,255,255,0),#fff); }
+  .more.open { max-height:none; } .more.open::after { display:none; }
+  button.tg { margin-top:8px; width:100%; padding:10px; border:1px solid #d0d7de; border-radius:10px; background:#fff; color:#1a56c4; font-size:14px; }
+  .msg { text-align:center; color:#57606a; padding:70px 16px; }
+  footer { color:#8c959f; font-size:11px; margin-top:18px; text-align:center; }
+</style>
+</head>
+<body>
+<div class="wrap" id="app"><div class="msg">読み込み中…</div></div>
+<script>
+(function () {
+  var API = 'https://script.google.com/macros/s/AKfycbzsZqDfcj05lF9GAEGP6z5qn6xfCbwrhF73Zb51bZ3VLsogdfm4jv-SexLYCaP5G8p1kA/exec';
+  var app = document.getElementById('app');
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function fail() { app.innerHTML = '<div class="msg">このページは表示できません。<br>URLをご確認のうえ、担当者にお問い合わせください。</div>'; }
+  var token = (location.search || '').replace(/^\?/, '').split('&')[0];
+  if (!/^[A-Za-z0-9]{16,40}$/.test(token)) { fail(); return; }
+  fetch(API + '?api=pack&p=' + token).then(function (r) { return r.json(); }).then(function (d) {
+    if (!d || d.error || !d.jobs || !d.jobs.length) { fail(); return; }
+    document.title = d.name || '求人のご紹介';
+    var h = '<h1>【' + esc(d.name) + '】</h1><p class="lead">求人は ' + d.jobs.length + '件です。詳細は面談にてお伝えします。</p>';
+    d.jobs.forEach(function (j, i) {
+      var body = '<dt>仕事内容</dt><dd>' + esc(j.w) + '</dd>';
+      (j.x || []).forEach(function (e) { body += '<dt>' + esc(e.k) + '</dt><dd>' + esc(e.v) + '</dd>'; });
+      h += '<section class="job"><div class="no">求人' + (i + 1) + '</div><div class="co">' + esc(j.c) + '</div>' +
+        '<div class="chips">' + (j.s ? '<span class="chip">年収 ' + esc(j.s) + '</span>' : '') + (j.l ? '<span class="chip">' + esc(j.l) + '</span>' : '') + '</div>' +
+        '<dl class="more" style="margin:0">' + body + '</dl><button class="tg" type="button" style="display:none">詳しく見る</button></section>';
+    });
+    h += '<footer>このページの内容は、第三者への提供・転載をご遠慮ください。記載内容は変更されることがあります。</footer>';
+    app.innerHTML = h;
+    Array.prototype.forEach.call(document.querySelectorAll('.job'), function (s) {
+      var m = s.querySelector('.more'), b = s.querySelector('.tg');
+      if (m.scrollHeight > m.clientHeight + 4) {
+        m.classList.add('cut'); b.style.display = '';
+        b.onclick = function () { var o = m.classList.toggle('open'); b.textContent = o ? '閉じる' : '詳しく見る'; };
+      }
+    });
+  }).catch(fail);
+})();
+</script>
+</body>
+</html>
