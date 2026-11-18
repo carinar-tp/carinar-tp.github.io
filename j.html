@@ -44,6 +44,14 @@
   .phases .ph small { font-size: 11px; }
   .phases .ph.cur { background: #188038; color: #fff; font-weight: bold; }
   .phases .arr { color: #9aa0a6; font-size: 12px; }
+  .sched { margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; font-size: 13px; }
+  .sched .hd { background: #f6f8fc; color: var(--sub); font-size: 12px; padding: 5px 10px; }
+  .sched .row { display: grid; grid-template-columns: 9.5em 1fr; gap: 2px 8px; padding: 7px 10px; border-top: 1px solid var(--line); }
+  .sched .row.cur { background: #e6f4ea; }
+  .sched .when { color: var(--text); white-space: nowrap; }
+  .sched .what { font-weight: bold; }
+  .sched .memo { grid-column: 2; color: var(--sub); white-space: pre-wrap; word-break: break-all; }
+  .sched .memo a { color: var(--main); }
   .ktabs .n { font-weight: normal; font-size: 13px; margin-left: 2px; }
   .kdesc { color: var(--sub); font-size: 13px; margin: 0 0 12px; }
   .sortbar { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin: -4px 0 12px; font-size: 13px; color: var(--sub); }
@@ -295,11 +303,18 @@
   const stageBadge = j => (stageOf(j) === '未応募' ? '' : `<span class="badge stage-${stageOf(j)}">${stageOf(j)}</span>`);
   // 選考の進み具合（担当者が管理画面で足していく）。選考中はいちばん右＝いまの段階を強調
   const mdOf = d => (d ? d.slice(5).split('-').map(Number).join('/') : '');
+  const wdOf = d => (d ? '（' + '日月火水木金土'[new Date(d + 'T00:00:00').getDay()] + '）' : '');
+  const linkText = t => esc(t).replace(/https?:\/\/[^\s<]+/g, u => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
   const phasesHtml = j => {
     const ps = (j.phases || []).filter(p => p && p.n);
     if (!ps.length || stageOf(j) === '未応募') return '';
     const live = stageOf(j) === '選考中';
-    return `<div class="phases">${ps.map((p, k) => `<span class="ph${live && k === ps.length - 1 ? ' cur' : ''}">${esc(p.n)}${p.d ? `<small>${mdOf(p.d)}</small>` : ''}</span>`).join('<span class="arr">→</span>')}</div>`;
+    const last = ps.length - 1;
+    const chain = `<div class="phases">${ps.map((p, k) => `<span class="ph${live && k === last ? ' cur' : ''}">${esc(p.n)}${p.d ? `<small>${mdOf(p.d)}${p.t ? ' ' + esc(p.t) : ''}</small>` : ''}</span>`).join('<span class="arr">→</span>')}</div>`;
+    // 選考スケジュール：日時や補足（面接URLなど）があるステップを一覧で
+    const rows = ps.map((p, k) => [p, k]).filter(([p]) => p.d || p.m);
+    const sched = !rows.length ? '' : `<div class="sched"><div class="hd">選考スケジュール</div>${rows.map(([p, k]) => `<div class="row${live && k === last ? ' cur' : ''}"><span class="when">${p.d ? `${mdOf(p.d)}${wdOf(p.d)}${p.t ? ' ' + esc(p.t) : ''}` : '日程調整中'}</span><span class="what">${esc(p.n)}</span>${p.m ? `<span class="memo">${linkText(p.m)}</span>` : ''}</div>`).join('')}</div>`;
+    return chain + sched;
   };
   // タグで絞り込み（担当者がタグを付けた求人があるときだけ、上にボタンを出す）
   let TAG = '';
