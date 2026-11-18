@@ -38,6 +38,12 @@
   .tags span.ref { background: #fff; color: #5f6368; border: 1px solid #dadce0; }
   .badge.stage-選考中 { background: #e6f4ea; color: #188038; font-weight: bold; margin-right: 4px; }
   .badge.stage-選考終了 { background: #f1f3f4; color: #5f6368; margin-right: 4px; }
+  .phases { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 4px; margin-top: 10px; }
+  .phases .ph { display: inline-flex; flex-direction: column; align-items: center; line-height: 1.3; font-size: 12px;
+                padding: 4px 10px; border-radius: 12px; background: #f1f3f4; color: #5f6368; }
+  .phases .ph small { font-size: 11px; }
+  .phases .ph.cur { background: #188038; color: #fff; font-weight: bold; }
+  .phases .arr { color: #9aa0a6; font-size: 12px; }
   .ktabs .n { font-weight: normal; font-size: 13px; margin-left: 2px; }
   .kdesc { color: var(--sub); font-size: 13px; margin: 0 0 12px; }
   .sortbar { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin: -4px 0 12px; font-size: 13px; color: var(--sub); }
@@ -228,7 +234,7 @@
     const badge = `<span class="badge s-${esc(j.status)}">${esc(j.status)}</span>`;
     if (j.closed) {
       return `<div class="card closed"><div class="top"><h2>${esc(j.title)}</h2><span class="date">${esc(j.sentAt)}</span></div>
-        ${stageOf(j) === '未応募' ? badge : stageBadge(j)}<div class="closedNote">この求人は現在掲載を終了しています。</div></div>`;
+        ${stageOf(j) === '未応募' ? badge : stageBadge(j)}${phasesHtml(j)}<div class="closedNote">この求人は現在掲載を終了しています。</div></div>`;
     }
     const fields = j.sections.map(g =>
       `<h3>${esc(g.name)}</h3><dl>${g.fields.map(f => `<dt>${esc(f.label)}</dt><dd>${linkify(f.value)}</dd>`).join('')}</dl>`).join('');
@@ -238,7 +244,7 @@
       <div class="top"><div><h2>${esc(j.title)}</h2>${j.sub ? `<div class="sub">${esc(j.sub)}</div>` : ''}</div>
       <span class="date">${esc(j.sentAt)}</span></div>
       ${tagsHtml(j)}
-      ${stageOf(j) === '未応募' ? `<span id="badge${i}">${badge}</span>` : stageBadge(j)}
+      ${stageOf(j) === '未応募' ? `<span id="badge${i}">${badge}</span>` : stageBadge(j) + phasesHtml(j)}
       ${fields ? `<details><summary>求人票を見る</summary>${fields}</details>` : ''}
       <textarea id="cm${i}" data-cm="${i}" placeholder="コメント（任意）"${PREVIEW ? ' readonly' : ''}>${esc(draftOf(j))}</textarea>
       <div class="cmnote" id="cmn${i}" hidden></div>
@@ -287,6 +293,14 @@
   };
   const stageOf = j => (j.sel === '選考中' ? '選考中' : (j.sel === '選考終了' || j.closed) ? '選考終了' : '未応募');
   const stageBadge = j => (stageOf(j) === '未応募' ? '' : `<span class="badge stage-${stageOf(j)}">${stageOf(j)}</span>`);
+  // 選考の進み具合（担当者が管理画面で足していく）。選考中はいちばん右＝いまの段階を強調
+  const mdOf = d => (d ? d.slice(5).split('-').map(Number).join('/') : '');
+  const phasesHtml = j => {
+    const ps = (j.phases || []).filter(p => p && p.n);
+    if (!ps.length || stageOf(j) === '未応募') return '';
+    const live = stageOf(j) === '選考中';
+    return `<div class="phases">${ps.map((p, k) => `<span class="ph${live && k === ps.length - 1 ? ' cur' : ''}">${esc(p.n)}${p.d ? `<small>${mdOf(p.d)}</small>` : ''}</span>`).join('<span class="arr">→</span>')}</div>`;
+  };
   // タグで絞り込み（担当者がタグを付けた求人があるときだけ、上にボタンを出す）
   let TAG = '';
   let STAGE = ''; // 表示中のタブ（選考中・選考終了の求人があるときだけ使う）
