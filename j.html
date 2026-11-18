@@ -305,6 +305,19 @@
   const mdOf = d => (d ? d.slice(5).split('-').map(Number).join('/') : '');
   const wdOf = d => (d ? '（' + '日月火水木金土'[new Date(d + 'T00:00:00').getDay()] + '）' : '');
   const linkText = t => esc(t).replace(/https?:\/\/[^\s<]+/g, u => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
+  // 選考中の並び：これからの予定が近い順 → 予定のないもの（直近に終わったステップが新しい順）→ 日付なし
+  const stepTime = p => (p && p.d ? new Date(`${p.d}T${p.t || '23:59'}:00`).getTime() : NaN);
+  function schedSort(items) {
+    const now = Date.now();
+    const key = ([j, i]) => {
+      const ts = (j.phases || []).map(stepTime).filter(t => !isNaN(t));
+      const next = ts.filter(t => t >= now).sort((a, b) => a - b)[0];
+      if (next !== undefined) return [0, next, i];
+      if (ts.length) return [1, -Math.max(...ts), i];
+      return [2, 0, i];
+    };
+    return items.map(x => [x, key(x)]).sort((a, b) => a[1][0] - b[1][0] || a[1][1] - b[1][1] || a[1][2] - b[1][2]).map(x => x[0]);
+  }
   const phasesHtml = j => {
     const ps = (j.phases || []).filter(p => p && p.n);
     if (!ps.length || stageOf(j) === '未応募') return '';
@@ -348,11 +361,11 @@
     renderTagbar();
     // 両タブとも描画しておき、表示中でない方は隠す（書きかけのコメントや開いた求人票を保つため）
     const items = DATA.jobs.map((j, i) => [j, i]).filter(([j]) => !TAG || (j.tags || []).includes(TAG));
-    $('sortbar').hidden = DATA.jobs.filter(inTab).length < 2;
+    $('sortbar').hidden = DATA.jobs.filter(inTab).length < 2 || STAGE === '選考中'; // 選考中は日程の近い順で固定
     $('sortSel').value = SORT;
     if (!STAGE) { $('list').innerHTML = sortItems(items).map(([j, i]) => cardHtml(j, i)).join(''); return; }
     $('list').innerHTML = STAGES.map(k => {
-      const g = sortItems(items.filter(([j]) => stageOf(j) === k));
+      const g = k === '選考中' ? schedSort(items.filter(([j]) => stageOf(j) === k)) : sortItems(items.filter(([j]) => stageOf(j) === k));
       return `<div class="kpane" data-pane="${k}"${STAGE === k ? '' : ' hidden'}>` +
         (g.length ? g.map(([j, i]) => cardHtml(j, i)).join('') : '<div class="state">該当する求人はありません。</div>') + '</div>';
     }).join('');
