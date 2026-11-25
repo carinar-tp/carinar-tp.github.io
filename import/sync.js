@@ -138,8 +138,8 @@ function classifyJob(title, sub, company) {
   if (window.__jobsyncRunning) { ui('求人の更新', 'すでに実行中です。終わるまでお待ちください。', null, false); return; }
   if (!CFG.exec || !CFG.key) { ui('求人の更新', 'ブックマークの設定が正しくありません。管理画面の「HRMOS・Talentio更新」から登録し直してください。', null, true); return; }
   const host = location.host;
-  const SRC = /hrmos\.co$/.test(host) && location.pathname.startsWith('/agent') ? 'HRMOS' : /talentio\.com$/.test(host) ? 'TALENTIO' : /^agent\.herp\.cloud$/.test(host) ? 'HERP' : /(^|\.)agent\.persona-ats\.com$/.test(host) ? 'PERSONA' : '';
-  if (!SRC) { ui('求人の更新', 'HRMOS・Talentio・HERP・PERSONAのエージェント画面（ログイン後）で押してください。', null, true); return; }
+  const SRC = /hrmos\.co$/.test(host) && location.pathname.startsWith('/agent') ? 'HRMOS' : /talentio\.com$/.test(host) ? 'TALENTIO' : /^agent\.herp\.cloud$/.test(host) ? 'HERP' : /(^|\.)agent\.persona-ats\.com$/.test(host) ? 'PERSONA' : /^ats\.jobcan\.jp$/.test(host) ? 'JOBCAN' : '';
+  if (!SRC) { ui('求人の更新', 'HRMOS・Talentio・HERP・PERSONA・ジョブカンのエージェント画面（ログイン後）で押してください。', null, true); return; }
   window.__jobsyncRunning = true;
 
   const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -590,8 +590,104 @@ function classifyJob(title, sub, company) {
     return `PERSONAの求人を更新しました（${clients.length}社・全${pr.n}件）。\n新規 ${added}件・読み直し ${updated}件・掲載終了で削除 ${pr.removed}件${failed ? `・読めなかった求人 ${failed}件` : ''}\n管理画面で「再読み込み」を押すと反映されます。`;
   }
 
+  // ===== ジョブカン：担当企業を順に切り替えて、全件を作り直す（非公開の求人も入れて「ジョブカン_公開状態」で区別） =====
+  async function runJobcan() {
+    const T = 'ジョブカンの求人を更新中';
+    const H = ['Id','Account_Text__c','JobName__c','JobType__c','JobTypeDetails__c','JobSituation__c','EmploymentStatus__c','WorkLocation__c','Address__c',
+      'AnnualIncomeLowerLimit__c','AnnualIncomMaxLimit__c','CompensationSystemDetails__c','BusinessContents__c','AdoptionElements__c',
+      'WorkingTime__c','HolidayVacation__c','WelfareOfficer__c','TrialPeriod__c','SelectionProcess__c','RemoteWork__c','InformationUpdateDate__c',
+      'ジョブカン_公開状態','ジョブカン_管理用求人名','ジョブカン_求人URL','取込日'];
+    const sel = document.querySelector('#change_agent_client');
+    if (!sel || !sel.options.length) throw new Error('ジョブカンのエージェント画面（ログイン後）で押してください。');
+    const csrf = (document.querySelector('meta[name=csrf-token]') || {}).content || '';
+    const HD = { 'X-Requested-With': 'XMLHttpRequest', Accept: 'application/json', 'X-CSRF-Token': csrf };
+    const getJson = async path => {
+      for (let a = 1; a <= 3; a++) {
+        const r = await fetch(path, { headers: HD });
+        if (r.status === 401 || r.status === 403) throw new Error('ジョブカンにログインしていないようです。ログインしてからもう一度押してください。');
+        if (r.ok && (r.headers.get('content-type') || '').includes('json')) return r.json();
+        if (a === 3) throw new Error(`ジョブカンの求人が読めませんでした（${r.status}）。少し待ってからもう一度押してください。`);
+        await sleep(2000 * a);
+      }
+    };
+    const switchTo = async id => {
+      const r = await fetch('/_/agents/change_client?client_id=' + encodeURIComponent(id), { headers: HD });
+      if (!r.ok) throw new Error(`企業の切り替えができませんでした（${r.status}）。`);
+    };
+    const salary = txt => {
+      const t = String(txt || '').normalize('NFKC');
+      const yen = (n, u) => { n = parseFloat(String(n).replace(/,/g, '')); if (!n) return ''; return Math.round(/万/.test(u || '') || n < 10000 ? n * 10000 : n); };
+      let m = t.match(/年収[^\d\n]{0,8}([\d,.]+)\s*(万円|万|円)?\s*[~〜～\-ー－]\s*([\d,.]+)\s*(万円|万|円)?/);
+      if (m) return [yen(m[1], m[2] || m[4]), yen(m[3], m[4])];
+      m = t.match(/年収[^\d\n]{0,8}([\d,.]+)\s*(万円|万|円)/);
+      return m ? [yen(m[1], m[2]), ''] : ['', ''];
+    };
+    const txt = v => md(String(v == null ? '' : v));
+    const toRow = (company, j) => {
+      const items = (j.optional_items || []).filter(x => String(x.value == null ? '' : x.value).trim());
+      const used = new Set();
+      const take = (re, labels) => { const a = items.filter(x => !used.has(x) && re.test(x.name)); a.forEach(x => used.add(x)); return a.map(x => ((labels === undefined ? a.length > 1 : labels) ? `【${x.name}】\n` : '') + txt(x.value)).join('\n\n'); };
+      const locs = (j.work_locations || []).map(l => [l.name, l.address, l.full_address].filter(Boolean).join(' ')).filter(String);
+      const place = [txt(j.place), locs.join('\n')].filter(String).join('\n\n');
+      const prefNames = (j.prefectures || []).map(p => p.name);
+      let prefs = PREFS.filter(p => place.includes(p));
+      if (!prefs.length && prefNames.length && prefNames.length <= 10) prefs = prefNames;
+      const comp = [txt(j.income), take(/給与|年収|賞与|報酬/, true)].filter(String).join('\n\n');
+      const remoteTxt = [j.place, j.working_hours, j.abstract].join(' ');
+      const v = {
+        Id: 'JC-' + j.id, Account_Text__c: (j.branch && j.branch.name) || company, JobName__c: j.published_name || String(j.name || '').replace(/^[■□◆◇●○【\s]+/, ''),
+        JobSituation__c: '採用中', EmploymentStatus__c: (j.employment_types || []).map(e => e.name).join('・'),
+        WorkLocation__c: prefs.join(';'), Address__c: place, CompensationSystemDetails__c: comp,
+        AdoptionElements__c: take(/必須|歓迎|求める|人物|資格|要件|応募|スキル|経験|言語/, true),
+        WorkingTime__c: [txt(j.working_hours), take(/勤務時間|就業時間|勤務形態/)].filter(String).join('\n\n'),
+        HolidayVacation__c: [txt(j.holidays), take(/休日|休暇/)].filter(String).join('\n\n'),
+        WelfareOfficer__c: take(/福利厚生|待遇|手当|昇給|制度|保険/, true), TrialPeriod__c: take(/試用/, false), SelectionProcess__c: take(/選考|面接/),
+        RemoteWork__c: /フルリモート|完全在宅|フル在宅/.test(remoteTxt) ? 'フルリモート可' : /リモート|在宅/.test(remoteTxt) && !/(リモート|在宅)(不可|なし)/.test(remoteTxt) ? '一部リモート可' : '',
+        InformationUpdateDate__c: fmtDate(j.updated_at || j.created_at),
+        'ジョブカン_公開状態': String(j.publish) === 'true' ? '公開' : '非公開', 'ジョブカン_管理用求人名': j.name || '',
+        'ジョブカン_求人URL': `https://ats.jobcan.jp/job_offers/${j.id}`, '取込日': today,
+      };
+      v.BusinessContents__c = [txt(j.abstract), items.filter(x => !used.has(x)).map(x => `【${x.name}】\n${txt(x.value)}`).join('\n\n')].filter(String).join('\n\n');
+      [v.AnnualIncomeLowerLimit__c, v.AnnualIncomMaxLimit__c] = salary(comp);
+      [v.JobType__c, v.JobTypeDetails__c] = classifyJob(v.JobName__c, j.name, v.Account_Text__c);
+      return H.map(h => String(v[h] == null ? '' : v[h]).slice(0, 45000));
+    };
+    const clients = [...sel.options].map(o => ({ id: o.value, name: o.text.trim() }));
+    const orig = sel.value;
+    const rows = [];
+    let failed = 0, hidden = 0;
+    try {
+      for (let i = 0; i < clients.length; i++) {
+        const c = clients[i];
+        ui(T, `ジョブカンから読み込み中… ${i + 1} / ${clients.length}社（求人 ${rows.length}件）\n読み終わるまで、ジョブカンの他のタブで企業を切り替えないでください。`, i / clients.length * 80);
+        await switchTo(c.id);
+        const list = [];
+        for (let off = 0; ; off += 100) {
+          const l = await getJson(`/_/agent/job_offers?limit=100&offset=${off}`);
+          list.push(...l);
+          if (l.length < 100) break;
+        }
+        for (let k = 0; k < list.length; k += 3) {
+          const got = await Promise.all(list.slice(k, k + 3).map(q => getJson('/_/agent/job_offers/' + encodeURIComponent(q.id)).catch(() => null)));
+          got.forEach(j => { if (!j) { failed++; return; } const r = toRow(c.name, j); if (r[H.indexOf('ジョブカン_公開状態')] === '非公開') hidden++; rows.push(r); });
+          await sleep(200);
+        }
+      }
+    } finally {
+      await switchTo(orig).catch(() => {});
+    }
+    if (!rows.length) throw new Error('求人が1件も読めませんでした。');
+    await post({ stage: 'start', headers: H });
+    for (let i = 0; i < rows.length; i += 200) {
+      const d = await post({ stage: 'rows', rows: rows.slice(i, i + 200) });
+      ui(T, `シートに書き込み中… ${d.n} / ${rows.length}件`, 80 + d.n / rows.length * 20);
+    }
+    const f = await post({ stage: 'finish', expect: rows.length });
+    return `ジョブカンの求人を ${f.n}件 に更新しました（${clients.length}社・うち非公開 ${hidden}件${failed ? `・読めなかった求人 ${failed}件` : ''}）。\n管理画面で「再読み込み」を押すと反映されます。`;
+  }
+
   try {
-    const msg = SRC === 'HRMOS' ? await runHrmos() : SRC === 'HERP' ? await runHerp() : SRC === 'PERSONA' ? await runPersona() : await runTalentio();
+    const msg = SRC === 'HRMOS' ? await runHrmos() : SRC === 'HERP' ? await runHerp() : SRC === 'PERSONA' ? await runPersona() : SRC === 'JOBCAN' ? await runJobcan() : await runTalentio();
     ui('更新が終わりました', msg, 100, true);
   } catch (e) {
     ui('更新できませんでした', String(e && e.message || e), null, true);
