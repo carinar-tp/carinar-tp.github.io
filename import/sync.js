@@ -138,8 +138,8 @@ function classifyJob(title, sub, company) {
   if (window.__jobsyncRunning) { ui('求人の更新', 'すでに実行中です。終わるまでお待ちください。', null, false); return; }
   if (!CFG.exec || !CFG.key) { ui('求人の更新', 'ブックマークの設定が正しくありません。管理画面の「HRMOS・Talentio更新」から登録し直してください。', null, true); return; }
   const host = location.host;
-  const SRC = /hrmos\.co$/.test(host) && location.pathname.startsWith('/agent') ? 'HRMOS' : /talentio\.com$/.test(host) ? 'TALENTIO' : /^agent\.herp\.cloud$/.test(host) ? 'HERP' : /(^|\.)agent\.persona-ats\.com$/.test(host) ? 'PERSONA' : /^ats\.jobcan\.jp$/.test(host) ? 'JOBCAN' : /^manager\.snar\.jp$/.test(host) && location.pathname.startsWith('/agent') ? 'SONAR' : '';
-  if (!SRC) { ui('求人の更新', 'HRMOS・Talentio・HERP・PERSONA・ジョブカン・sonarのエージェント画面（ログイン後）で押してください。', null, true); return; }
+  const SRC = /hrmos\.co$/.test(host) && location.pathname.startsWith('/agent') ? 'HRMOS' : /talentio\.com$/.test(host) ? 'TALENTIO' : /^agent\.herp\.cloud$/.test(host) ? 'HERP' : /(^|\.)agent\.persona-ats\.com$/.test(host) ? 'PERSONA' : /^ats\.jobcan\.jp$/.test(host) ? 'JOBCAN' : /^manager\.snar\.jp$/.test(host) && location.pathname.startsWith('/agent') ? 'SONAR' : /^ats\.hrtech\.rikunabi\.com$/.test(host) && location.pathname.startsWith('/agent') ? 'RIKUNABI' : '';
+  if (!SRC) { ui('求人の更新', 'HRMOS・Talentio・HERP・PERSONA・ジョブカン・sonar・リクナビHRTechのエージェント画面（ログイン後）で押してください。', null, true); return; }
   window.__jobsyncRunning = true;
 
   const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -715,14 +715,26 @@ function classifyJob(title, sub, company) {
       let m = t.match(/年収[^\d\n]{0,8}([\d,.]+)\s*(万円|万|円)?\s*[~〜～\-ー－]\s*([\d,.]+)\s*(万円|万|円)?/);
       if (m) return [yen(m[1], m[2] || m[4]), yen(m[3], m[4])];
       m = t.match(/年収[^\d\n]{0,8}([\d,.]+)\s*(万円|万|円)/);
-      return m ? [yen(m[1], m[2]), ''] : ['', ''];
+      if (m) return [yen(m[1], m[2]), ''];
+      // 「年収」の語がなくても「800～1,200万円」のように万円の幅があれば年収とみなす（月給は除く）
+      m = t.match(/(?:^|[^月時日\d,.])([\d,.]{3,})\s*(万円|万)?\s*[~〜～\-ー－]\s*([\d,.]{3,})\s*(万円|万)/);
+      return m && !/月給|月額|時給/.test(t.slice(Math.max(0, m.index - 10), m.index + 2)) && yen(m[1], m[2] || m[4]) >= 2000000 ? [yen(m[1], m[2] || m[4]), yen(m[3], m[4])] : ['', ''];
     };
     // 本文はHTMLなので、改行を残して文字だけにする
     const plain = html => {
       const d = new DOMParser().parseFromString(String(html || '').replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|li|h\d)>/gi, '$&\n'), 'text/html');
       return md(d.body.textContent.replace(/\u00a0/g, ' '));
     };
-    const toPref = names => [...new Set(names.flatMap(n => { n = String(n || ''); const hit = PREFS.filter(p => n.includes(p)); return hit.length ? hit : PREFS.filter(p => n && p.replace(/[都府県]$/, '') === n.replace(/[都府県]$/, '')); }))];
+    // 「大阪」「名古屋 ＞ 名古屋支社」のような書き方も都道府県に直す（「東京都」の中の「京都」は拾わない）
+    const CITY = { 名古屋: '愛知県', 横浜: '神奈川県', 川崎: '神奈川県', 札幌: '北海道', 仙台: '宮城県', 神戸: '兵庫県', 博多: '福岡県', 那覇: '沖縄県', 梅田: '大阪府', 難波: '大阪府' };
+    const toPref = names => [...new Set(names.flatMap(n => {
+      n = String(n || '');
+      const hit = PREFS.filter(p => n.includes(p));
+      if (hit.length) return hit;
+      const t = n.replace(/東京/g, '〓');
+      return PREFS.filter(p => { const b = p.replace(/[都府県]$/, ''); return p === '東京都' ? n.includes('東京') : p === '北海道' ? false : b.length >= 2 && t.includes(b); })
+        .concat(Object.keys(CITY).filter(k => n.includes(k)).map(k => CITY[k]));
+    }))];
     const toRow = (p, row, d) => {
       const items = (d.jobOfferItems || []).map(x => ({ name: String(x.label || '').trim(), text: plain(x.text) })).filter(x => x.text);
       const used = new Set();
@@ -790,8 +802,45 @@ function classifyJob(title, sub, company) {
     return `sonarの求人を ${f.n}件 に更新しました（${projects.length}社${failed ? `・読めなかった求人 ${failed}件` : ''}）。\n管理画面で「再読み込み」を押すと反映されます。`;
   }
 
+  // ===== リクナビHRTech：求人の中身はPDFなので、求人名・企業からのメモ・求人票PDFへのリンクだけ取り込む =====
+  async function runRikunabi() {
+    const T = 'リクナビHRTechの求人を更新中';
+    const H = ['Id','Account_Text__c','JobName__c','JobType__c','JobTypeDetails__c','JobSituation__c','BusinessContents__c','InformationUpdateDate__c',
+      'リクナビ_求人票PDF','リクナビ_エージェント向けメモ','取込日'];
+    ui(T, '契約企業と募集ポジションを読んでいます…', 10);
+    const r = await fetch('/api/agent/transaction/client', { headers: { Accept: 'application/json' }, credentials: 'include' });
+    if (!r.ok || !(r.headers.get('content-type') || '').includes('json')) throw new Error('リクナビHRTechにログインしていないようです。ログインしてからもう一度押してください。');
+    const clients = await r.json();
+    const fileUrl = path => 'https://ats.hrtech.rikunabi.com/agent/file#/agent/' + String(path || '').split('/').map(encodeURIComponent).join('/');
+    const rows = [];
+    for (const c of clients) {
+      const cl = c.client || {}, corp = cl.corporation || {};
+      if (cl.active === false) continue;
+      const company = corp.fullName || cl.fullName || corp.name || cl.name || '';
+      for (const o of c.jobOffers || []) {
+        if (o.active === false) continue;
+        const v = {
+          Id: 'RN-' + o.id, Account_Text__c: company, JobName__c: String(o.title || '').replace(/^[■□◆◇●○\s]+/, ''), JobSituation__c: '採用中',
+          BusinessContents__c: md(o.clientMemo), InformationUpdateDate__c: String(o.updatedAt || o.createdAt || '').slice(0, 10),
+          'リクナビ_求人票PDF': (o.files || []).map(f => `${f.name}\n${fileUrl(f.path)}`).join('\n\n'),
+          'リクナビ_エージェント向けメモ': md(o.agentMemo), '取込日': today,
+        };
+        [v.JobType__c, v.JobTypeDetails__c] = classifyJob(v.JobName__c, '', company);
+        rows.push(H.map(h => String(v[h] == null ? '' : v[h]).slice(0, 45000)));
+      }
+    }
+    if (!rows.length) throw new Error('求人が1件も読めませんでした。');
+    await post({ stage: 'start', headers: H });
+    for (let i = 0; i < rows.length; i += 200) {
+      const d = await post({ stage: 'rows', rows: rows.slice(i, i + 200) });
+      ui(T, `シートに書き込み中… ${d.n} / ${rows.length}件`, 30 + d.n / rows.length * 70);
+    }
+    const f = await post({ stage: 'finish', expect: rows.length });
+    return `リクナビHRTechの求人を ${f.n}件 に更新しました（${clients.length}社）。\n求人の中身はPDFのため、求人名と求人票PDFへのリンクだけです。\n管理画面で「再読み込み」を押すと反映されます。`;
+  }
+
   try {
-    const msg = SRC === 'HRMOS' ? await runHrmos() : SRC === 'HERP' ? await runHerp() : SRC === 'PERSONA' ? await runPersona() : SRC === 'JOBCAN' ? await runJobcan() : SRC === 'SONAR' ? await runSonar() : await runTalentio();
+    const msg = SRC === 'HRMOS' ? await runHrmos() : SRC === 'HERP' ? await runHerp() : SRC === 'PERSONA' ? await runPersona() : SRC === 'JOBCAN' ? await runJobcan() : SRC === 'SONAR' ? await runSonar() : SRC === 'RIKUNABI' ? await runRikunabi() : await runTalentio();
     ui('更新が終わりました', msg, 100, true);
   } catch (e) {
     ui('更新できませんでした', String(e && e.message || e), null, true);
