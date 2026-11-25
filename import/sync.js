@@ -138,8 +138,8 @@ function classifyJob(title, sub, company) {
   if (window.__jobsyncRunning) { ui('求人の更新', 'すでに実行中です。終わるまでお待ちください。', null, false); return; }
   if (!CFG.exec || !CFG.key) { ui('求人の更新', 'ブックマークの設定が正しくありません。管理画面の「HRMOS・Talentio更新」から登録し直してください。', null, true); return; }
   const host = location.host;
-  const SRC = /hrmos\.co$/.test(host) && location.pathname.startsWith('/agent') ? 'HRMOS' : /talentio\.com$/.test(host) ? 'TALENTIO' : /^agent\.herp\.cloud$/.test(host) ? 'HERP' : /(^|\.)agent\.persona-ats\.com$/.test(host) ? 'PERSONA' : /^ats\.jobcan\.jp$/.test(host) ? 'JOBCAN' : '';
-  if (!SRC) { ui('求人の更新', 'HRMOS・Talentio・HERP・PERSONA・ジョブカンのエージェント画面（ログイン後）で押してください。', null, true); return; }
+  const SRC = /hrmos\.co$/.test(host) && location.pathname.startsWith('/agent') ? 'HRMOS' : /talentio\.com$/.test(host) ? 'TALENTIO' : /^agent\.herp\.cloud$/.test(host) ? 'HERP' : /(^|\.)agent\.persona-ats\.com$/.test(host) ? 'PERSONA' : /^ats\.jobcan\.jp$/.test(host) ? 'JOBCAN' : /^manager\.snar\.jp$/.test(host) && location.pathname.startsWith('/agent') ? 'SONAR' : '';
+  if (!SRC) { ui('求人の更新', 'HRMOS・Talentio・HERP・PERSONA・ジョブカン・sonarのエージェント画面（ログイン後）で押してください。', null, true); return; }
   window.__jobsyncRunning = true;
 
   const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -686,8 +686,112 @@ function classifyJob(title, sub, company) {
     return `ジョブカンの求人を ${f.n}件 に更新しました（${clients.length}社・うち非公開 ${hidden}件${failed ? `・読めなかった求人 ${failed}件` : ''}）。\n管理画面で「再読み込み」を押すと反映されます。`;
   }
 
+  // ===== sonar ATS：クライアント（案件）を順に切り替えて、全件を作り直す =====
+  async function runSonar() {
+    const T = 'sonarの求人を更新中';
+    const H = ['Id','Account_Text__c','JobName__c','JobType__c','JobTypeDetails__c','JobSituation__c','EmploymentStatus__c','WorkLocation__c','Address__c',
+      'AnnualIncomeLowerLimit__c','AnnualIncomMaxLimit__c','CompensationSystemDetails__c','BusinessContents__c','AdoptionElements__c',
+      'WorkingTime__c','HolidayVacation__c','WelfareOfficer__c','TrialPeriod__c','SelectionProcess__c','RemoteWork__c','CorporateInformation__c','InformationUpdateDate__c',
+      'sonar_職種','sonar_案件名','sonar_紹介会社向け情報','sonar_募集終了日','取込日'];
+    if (typeof window.__xsrfToken !== 'string') throw new Error('sonarのエージェント画面（ログイン後）で押してください。');
+    const X = { 'X-XSRF-TOKEN': window.__xsrfToken, Accept: 'application/json' };
+    let cur = 0;
+    const api = async (path, opt) => {
+      for (let a = 1; a <= 3; a++) {
+        const r = await fetch('/agent/api/' + path, Object.assign({ credentials: 'include' }, opt || {}, { headers: Object.assign({ 'Front-Project-No': String(cur) }, X, opt && opt.body ? { 'Content-Type': 'application/json' } : {}) }));
+        if (r.ok && (r.headers.get('content-type') || '').includes('json')) return r.json();
+        if (a === 3) throw new Error(`sonarの求人が読めませんでした（${r.status}）。ログインし直してからもう一度押してください。`);
+        await sleep(2000 * a);
+      }
+    };
+    const change = async no => {
+      const d = await api('Home/ProjectCardSelector/Change', { method: 'POST', body: JSON.stringify(no) });
+      if (!(Array.isArray(d) && d[0] === 'OK')) throw new Error('クライアントの切り替えができませんでした。');
+      cur = no;
+    };
+    const salary = txt => {
+      const t = String(txt || '').normalize('NFKC');
+      const yen = (n, u) => { n = parseFloat(String(n).replace(/,/g, '')); if (!n) return ''; return Math.round(/万/.test(u || '') || n < 10000 ? n * 10000 : n); };
+      let m = t.match(/年収[^\d\n]{0,8}([\d,.]+)\s*(万円|万|円)?\s*[~〜～\-ー－]\s*([\d,.]+)\s*(万円|万|円)?/);
+      if (m) return [yen(m[1], m[2] || m[4]), yen(m[3], m[4])];
+      m = t.match(/年収[^\d\n]{0,8}([\d,.]+)\s*(万円|万|円)/);
+      return m ? [yen(m[1], m[2]), ''] : ['', ''];
+    };
+    // 本文はHTMLなので、改行を残して文字だけにする
+    const plain = html => {
+      const d = new DOMParser().parseFromString(String(html || '').replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|li|h\d)>/gi, '$&\n'), 'text/html');
+      return md(d.body.textContent.replace(/\u00a0/g, ' '));
+    };
+    const toPref = names => [...new Set(names.flatMap(n => { n = String(n || ''); const hit = PREFS.filter(p => n.includes(p)); return hit.length ? hit : PREFS.filter(p => n && p.replace(/[都府県]$/, '') === n.replace(/[都府県]$/, '')); }))];
+    const toRow = (p, row, d) => {
+      const items = (d.jobOfferItems || []).map(x => ({ name: String(x.label || '').trim(), text: plain(x.text) })).filter(x => x.text);
+      const used = new Set();
+      const take = (re, labels) => { const a = items.filter(x => !used.has(x) && re.test(x.name)); a.forEach(x => used.add(x)); return a.map(x => ((labels === undefined ? a.length > 1 : labels) ? `【${x.name}】\n` : '') + x.text).join('\n\n'); };
+      const agentInfo = take(/エージェント|紹介条件|紹介会社/, true);
+      const locs = (d.jobLocation || []).map(String);
+      const addr = take(/勤務地|就業場所|勤務場所/);
+      const comp = take(/給与|年収|賞与|報酬|待遇/, true);
+      const v = {
+        Id: `SN-${p.ProjectNo}-${row.id}`, Account_Text__c: p.ClientName, JobName__c: d.title || (row.values || [])[0] || '', JobSituation__c: '採用中',
+        EmploymentStatus__c: [].concat(d.employmentType || []).join('・') || take(/雇用形態/, false),
+        Address__c: [locs.join('・'), addr].filter(String).join('\n\n'),
+        CompensationSystemDetails__c: comp,
+        AdoptionElements__c: take(/必須|歓迎|求める|人物|資格|要件|応募|スキル|経験|必要条件/, true),
+        WorkingTime__c: take(/勤務時間|就業時間|勤務体系|勤務条件|労働条件|勤務形態/, true),
+        HolidayVacation__c: take(/休日|休暇/), WelfareOfficer__c: take(/福利厚生|手当|制度|保険/, true),
+        TrialPeriod__c: take(/試用/, false), SelectionProcess__c: take(/選考/),
+        CorporateInformation__c: take(/会社PR|事業内容|ビジョン|について$|会社概要|当社/, true),
+        InformationUpdateDate__c: String((row.values || [])[4] || '').slice(0, 10),
+        'sonar_職種': [].concat(d.shokushu || []).join('・'), 'sonar_案件名': p.ProjectName || '',
+        'sonar_紹介会社向け情報': agentInfo, 'sonar_募集終了日': String((row.values || [])[3] || ''), '取込日': today,
+      };
+      v.WorkLocation__c = toPref(locs.concat(addr)).join(';');
+      v.BusinessContents__c = items.filter(x => !used.has(x)).map(x => `【${x.name}】\n${x.text}`).join('\n\n');
+      const remoteTxt = [v.Address__c, v.WorkingTime__c, v.BusinessContents__c].join(' ');
+      v.RemoteWork__c = /フルリモート|完全在宅|フル在宅/.test(remoteTxt) ? 'フルリモート可' : /リモート|在宅/.test(remoteTxt) && !/(リモート|在宅)(不可|なし)/.test(remoteTxt) ? '一部リモート可' : '';
+      [v.AnnualIncomeLowerLimit__c, v.AnnualIncomMaxLimit__c] = salary(comp);
+      [v.JobType__c, v.JobTypeDetails__c] = classifyJob(v.JobName__c, v['sonar_職種'], v.Account_Text__c);
+      return H.map(h => String(v[h] == null ? '' : v[h]).slice(0, 45000));
+    };
+    ui(T, 'クライアントの一覧を読んでいます…', 0);
+    cur = (await api('Account/GetAccountInfo')).projectNo || 0;
+    const orig = cur;
+    const projects = (await api('Home/ProjectCardSelector/Master')).projectCardDataArray || [];
+    if (!projects.length) throw new Error('クライアントが1件も見つかりませんでした。');
+    const rows = [];
+    let failed = 0;
+    try {
+      for (let i = 0; i < projects.length; i++) {
+        const p = projects[i];
+        ui(T, `sonarから読み込み中… ${i + 1} / ${projects.length}社（求人 ${rows.length}件）\n読み終わるまで、sonarの他のタブで操作しないでください。`, i / projects.length * 80);
+        await change(p.ProjectNo);
+        const first = await api('JobOffer/List/GetItems', { method: 'POST', body: JSON.stringify({ targetItems: ['Title', 'JobLocation', 'EmploymentType', 'AgentOpenEnd', 'EditDT', 'RecommendCount'], sortState: { name: 'EditDT', order: 'desc' }, filterState: {} }) });
+        let list = first.values || [], more = first.hasMoreItems;
+        while (more) {
+          const g = await api(`JobOffer/List/GetItems?id=${encodeURIComponent(first.resultId)}&start=${list.length}&count=100`);
+          list = list.concat(g.values || []);
+          more = g.hasMoreItems && (g.values || []).length > 0;
+        }
+        for (const row of list) {
+          try { rows.push(toRow(p, row, await api('JobOffer/Detail/Get?jobOfferNo=' + encodeURIComponent(row.id)))); } catch (e) { failed++; }
+          await sleep(150);
+        }
+      }
+    } finally {
+      if (cur !== orig && orig) await change(orig).catch(() => {});
+    }
+    if (!rows.length) throw new Error('求人が1件も読めませんでした。');
+    await post({ stage: 'start', headers: H });
+    for (let i = 0; i < rows.length; i += 200) {
+      const d = await post({ stage: 'rows', rows: rows.slice(i, i + 200) });
+      ui(T, `シートに書き込み中… ${d.n} / ${rows.length}件`, 80 + d.n / rows.length * 20);
+    }
+    const f = await post({ stage: 'finish', expect: rows.length });
+    return `sonarの求人を ${f.n}件 に更新しました（${projects.length}社${failed ? `・読めなかった求人 ${failed}件` : ''}）。\n管理画面で「再読み込み」を押すと反映されます。`;
+  }
+
   try {
-    const msg = SRC === 'HRMOS' ? await runHrmos() : SRC === 'HERP' ? await runHerp() : SRC === 'PERSONA' ? await runPersona() : SRC === 'JOBCAN' ? await runJobcan() : await runTalentio();
+    const msg = SRC === 'HRMOS' ? await runHrmos() : SRC === 'HERP' ? await runHerp() : SRC === 'PERSONA' ? await runPersona() : SRC === 'JOBCAN' ? await runJobcan() : SRC === 'SONAR' ? await runSonar() : await runTalentio();
     ui('更新が終わりました', msg, 100, true);
   } catch (e) {
     ui('更新できませんでした', String(e && e.message || e), null, true);
