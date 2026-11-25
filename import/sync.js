@@ -596,7 +596,7 @@ function classifyJob(title, sub, company) {
     const H = ['Id','Account_Text__c','JobName__c','JobType__c','JobTypeDetails__c','JobSituation__c','EmploymentStatus__c','WorkLocation__c','Address__c',
       'AnnualIncomeLowerLimit__c','AnnualIncomMaxLimit__c','CompensationSystemDetails__c','BusinessContents__c','AdoptionElements__c',
       'WorkingTime__c','HolidayVacation__c','WelfareOfficer__c','TrialPeriod__c','SelectionProcess__c','RemoteWork__c','InformationUpdateDate__c',
-      'ジョブカン_公開状態','ジョブカン_管理用求人名','ジョブカン_求人URL','取込日'];
+      'ジョブカン_公開状態','ジョブカン_管理用求人名','ジョブカン_募集拠点','ジョブカン_求人URL','取込日'];
     const sel = document.querySelector('#change_agent_client');
     if (!sel || !sel.options.length) throw new Error('ジョブカンのエージェント画面（ログイン後）で押してください。');
     const csrf = (document.querySelector('meta[name=csrf-token]') || {}).content || '';
@@ -635,7 +635,7 @@ function classifyJob(title, sub, company) {
       const comp = [txt(j.income), take(/給与|年収|賞与|報酬/, true)].filter(String).join('\n\n');
       const remoteTxt = [j.place, j.working_hours, j.abstract].join(' ');
       const v = {
-        Id: 'JC-' + j.id, Account_Text__c: (j.branch && j.branch.name) || company, JobName__c: j.published_name || String(j.name || '').replace(/^[■□◆◇●○【\s]+/, ''),
+        Id: 'JC-' + j.id, Account_Text__c: company, JobName__c: j.published_name || String(j.name || '').replace(/^[■□◆◇●○【\s]+/, ''),
         JobSituation__c: '採用中', EmploymentStatus__c: (j.employment_types || []).map(e => e.name).join('・'),
         WorkLocation__c: prefs.join(';'), Address__c: place, CompensationSystemDetails__c: comp,
         AdoptionElements__c: take(/必須|歓迎|求める|人物|資格|要件|応募|スキル|経験|言語/, true),
@@ -644,7 +644,7 @@ function classifyJob(title, sub, company) {
         WelfareOfficer__c: take(/福利厚生|待遇|手当|昇給|制度|保険/, true), TrialPeriod__c: take(/試用/, false), SelectionProcess__c: take(/選考|面接/),
         RemoteWork__c: /フルリモート|完全在宅|フル在宅/.test(remoteTxt) ? 'フルリモート可' : /リモート|在宅/.test(remoteTxt) && !/(リモート|在宅)(不可|なし)/.test(remoteTxt) ? '一部リモート可' : '',
         InformationUpdateDate__c: fmtDate(j.updated_at || j.created_at),
-        'ジョブカン_公開状態': String(j.publish) === 'true' ? '公開' : '非公開', 'ジョブカン_管理用求人名': j.name || '',
+        'ジョブカン_公開状態': String(j.publish) === 'true' ? '公開' : '非公開', 'ジョブカン_管理用求人名': j.name || '', 'ジョブカン_募集拠点': (j.branch && j.branch.name) || '',
         'ジョブカン_求人URL': `https://ats.jobcan.jp/job_offers/${j.id}`, '取込日': today,
       };
       v.BusinessContents__c = [txt(j.abstract), items.filter(x => !used.has(x)).map(x => `【${x.name}】\n${txt(x.value)}`).join('\n\n')].filter(String).join('\n\n');
