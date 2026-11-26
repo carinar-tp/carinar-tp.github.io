@@ -138,8 +138,8 @@ function classifyJob(title, sub, company) {
   if (window.__jobsyncRunning) { ui('求人の更新', 'すでに実行中です。終わるまでお待ちください。', null, false); return; }
   if (!CFG.exec || !CFG.key) { ui('求人の更新', 'ブックマークの設定が正しくありません。管理画面の「HRMOS・Talentio更新」から登録し直してください。', null, true); return; }
   const host = location.host;
-  const SRC = /hrmos\.co$/.test(host) && location.pathname.startsWith('/agent') ? 'HRMOS' : /talentio\.com$/.test(host) ? 'TALENTIO' : /^agent\.herp\.cloud$/.test(host) ? 'HERP' : /(^|\.)agent\.persona-ats\.com$/.test(host) ? 'PERSONA' : /^ats\.jobcan\.jp$/.test(host) ? 'JOBCAN' : /^manager\.snar\.jp$/.test(host) && location.pathname.startsWith('/agent') ? 'SONAR' : /^ats\.hrtech\.rikunabi\.com$/.test(host) && location.pathname.startsWith('/agent') ? 'RIKUNABI' : '';
-  if (!SRC) { ui('求人の更新', 'HRMOS・Talentio・HERP・PERSONA・ジョブカン・sonar・リクナビHRTechのエージェント画面（ログイン後）で押してください。', null, true); return; }
+  const SRC = /hrmos\.co$/.test(host) && location.pathname.startsWith('/agent') ? 'HRMOS' : /talentio\.com$/.test(host) ? 'TALENTIO' : /^agent\.herp\.cloud$/.test(host) ? 'HERP' : /(^|\.)agent\.persona-ats\.com$/.test(host) ? 'PERSONA' : /^ats\.jobcan\.jp$/.test(host) ? 'JOBCAN' : /^manager\.snar\.jp$/.test(host) && location.pathname.startsWith('/agent') ? 'SONAR' : /^ats\.hrtech\.rikunabi\.com$/.test(host) && location.pathname.startsWith('/agent') ? 'RIKUNABI' : /^partner\.geekly\.jp$/.test(host) ? 'GEEKLY' : '';
+  if (!SRC) { ui('求人の更新', 'HRMOS・Talentio・HERP・PERSONA・ジョブカン・sonar・リクナビHRTech・ギークリーのエージェント画面（ログイン後）で押してください。', null, true); return; }
   window.__jobsyncRunning = true;
 
   const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -839,8 +839,96 @@ function classifyJob(title, sub, company) {
     return `リクナビHRTechの求人を ${f.n}件 に更新しました（${clients.length}社）。\n求人の中身はPDFのため、求人名と求人票PDFへのリンクだけです。\n管理画面で「再読み込み」を押すと反映されます。`;
   }
 
+  // ===== ギークリー（パートナー画面）：求人一覧から詳細ページを1件ずつ読み、全件を作り直す（求人はギークリー自社の募集） =====
+  async function runGeekly() {
+    const T = 'ギークリーの求人を更新中';
+    const COMPANY = '株式会社ギークリー';
+    const H = ['Id','Account_Text__c','JobName__c','JobType__c','JobTypeDetails__c','JobSituation__c','EmploymentStatus__c','WorkLocation__c','Address__c',
+      'AnnualIncomeLowerLimit__c','AnnualIncomMaxLimit__c','CompensationSystemDetails__c','BusinessContents__c','AdoptionElements__c',
+      'WorkingTime__c','HolidayVacation__c','WelfareOfficer__c','Insurance__c','TrialPeriod__c','RemoteWork__c',
+      'CorporateInformation__c','NumberOfEmployees__c','CorporateAccount__r.CompanyEstablishedDateFomula__c',
+      'ギークリー_求人の特徴','ギークリー_求人URL','取込日'];
+    const base = '/' + location.pathname.split('/').filter(Boolean)[0] + '/s_jobs/';
+    const getDoc = async path => {
+      for (let a = 1; a <= 3; a++) {
+        const r = await fetch(path, { credentials: 'include' });
+        if (r.ok) {
+          const d = new DOMParser().parseFromString(await r.text(), 'text/html');
+          if (d.querySelector('input[type=password]') && !d.querySelector('a[href*="/s_jobs/details/"], .form-group')) throw new Error('ギークリーにログインしていないようです。ログインしてからもう一度押してください。');
+          return d;
+        }
+        if (a === 3) throw new Error(`ギークリーの求人が読めませんでした（${r.status}）。少し待ってからもう一度押してください。`);
+        await sleep(2000 * a);
+      }
+    };
+    const clean = t => md(String(t || '').replace(/\u00a0/g, ' ').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n'));
+    const yen = (n, u) => { n = parseFloat(String(n).replace(/,/g, '')); if (!n) return ''; return Math.round(/万/.test(u || '') || n < 10000 ? n * 10000 : n); };
+    const salary = txt => {
+      const t = String(txt || '').normalize('NFKC');
+      let m = t.match(/([\d,.]+)\s*(万円|万|円)?\s*[~〜～\-ー－]\s*([\d,.]+)\s*(万円|万|円)/);
+      if (m) return [yen(m[1], m[2] || m[4]), yen(m[3], m[4])];
+      m = t.match(/([\d,.]+)\s*(万円|万)/);
+      return m ? [yen(m[1], m[2]), ''] : ['', ''];
+    };
+    // 一覧（「next」があれば次のページも）から求人IDを集める
+    ui(T, '求人の一覧を読んでいます…', 0);
+    const ids = [], seen = new Set();
+    let path = base;
+    for (let pg = 0; pg < 30 && path; pg++) {
+      const d = await getDoc(path);
+      [...d.querySelectorAll('a[href*="/s_jobs/details/"]')].forEach(a => { const id = (a.getAttribute('href').match(/details\/(\d+)/) || [])[1]; if (id && !seen.has(id)) { seen.add(id); ids.push(id); } });
+      const nx = [...d.querySelectorAll('a')].find(a => /^\s*next\s*$/i.test(a.textContent) && a.getAttribute('href') && !/^#|javascript:/i.test(a.getAttribute('href')));
+      const nu = nx ? new URL(nx.getAttribute('href'), location.origin + path) : null;
+      const np = nu ? nu.pathname + nu.search : '';
+      path = np && np !== path ? np : '';
+    }
+    if (!ids.length) throw new Error('求人が1件も見つかりませんでした。求人一覧の画面で押してください。');
+    const rows = [];
+    let failed = 0;
+    for (let i = 0; i < ids.length; i++) {
+      ui(T, `ギークリーから読み込み中… ${i + 1} / ${ids.length}件`, 5 + i / ids.length * 80);
+      try {
+        const d = await getDoc(base + 'details/' + ids[i]);
+        const f = {};
+        d.querySelectorAll('.form-group').forEach(g => { const l = g.querySelector('label'), v = g.querySelector('.col-sm-10'); if (l && v) f[l.textContent.trim()] = clean(v.innerText || v.textContent); });
+        const get = k => (f[k] || '').trim();
+        const lab = k => { const v = get(k); return v && !/^[-ー\s]*(万|日)?$/.test(v) ? `【${k}】\n${v}` : ''; };
+        const title = clean((d.querySelector('.panel-heading') || {}).textContent || '');
+        const addr = [get('勤務地'), get('最寄り駅') ? `最寄り駅：${get('最寄り駅')}` : ''].filter(String).join('\n');
+        const comp = [get('想定年収') ? `想定年収：${get('想定年収')}` : '', lab('給与形態'), lab('月給'), lab('残業代'), lab('昇給賞与')].filter(String).join('\n\n');
+        const remoteTxt = [title, get('仕事内容'), get('勤務地')].join(' ');
+        const v = {
+          Id: 'GK-' + ids[i], Account_Text__c: COMPANY, JobName__c: title, JobSituation__c: '採用中',
+          EmploymentStatus__c: get('雇用形態'), WorkLocation__c: [...new Set(PREFS.filter(p => addr.includes(p)))].join(';'), Address__c: addr,
+          CompensationSystemDetails__c: comp, BusinessContents__c: get('仕事内容'), AdoptionElements__c: get('必要業務経験'),
+          WorkingTime__c: get('勤務時間'), HolidayVacation__c: [lab('年間休日'), get('休日休暇')].filter(String).join('\n\n'),
+          WelfareOfficer__c: [lab('諸手当'), lab('福利厚生')].filter(String).join('\n\n'), Insurance__c: get('各種保険'), TrialPeriod__c: get('試用期間'),
+          RemoteWork__c: /フルリモート|完全在宅|フル在宅/.test(remoteTxt) ? 'フルリモート可' : /リモート|在宅/.test(remoteTxt) && !/(リモート|在宅)(不可|なし)/.test(remoteTxt) ? '一部リモート可' : '',
+          CorporateInformation__c: [get('事業内容'), lab('会社特徴'), lab('資本金'), lab('売上高')].filter(String).join('\n\n'),
+          NumberOfEmployees__c: get('従業員数'), 'CorporateAccount__r.CompanyEstablishedDateFomula__c': get('設立年月'),
+          'ギークリー_求人の特徴': get('求人の特徴'), 'ギークリー_求人URL': location.origin + base + 'details/' + ids[i], '取込日': today,
+        };
+        [v.AnnualIncomeLowerLimit__c, v.AnnualIncomMaxLimit__c] = salary(get('想定年収'));
+        [v.JobType__c, v.JobTypeDetails__c] = classifyJob(v.JobName__c, '', COMPANY);
+        if (v.JobName__c) rows.push(H.map(h => String(v[h] == null ? '' : v[h]).slice(0, 45000))); else failed++;
+      } catch (e) {
+        if (/ログイン/.test(String(e && e.message))) throw e;
+        failed++;
+      }
+      await sleep(250);
+    }
+    if (!rows.length) throw new Error('求人が1件も読めませんでした。');
+    await post({ stage: 'start', headers: H });
+    for (let i = 0; i < rows.length; i += 200) {
+      const d = await post({ stage: 'rows', rows: rows.slice(i, i + 200) });
+      ui(T, `シートに書き込み中… ${d.n} / ${rows.length}件`, 85 + d.n / rows.length * 15);
+    }
+    const f = await post({ stage: 'finish', expect: rows.length });
+    return `ギークリーの求人を ${f.n}件 に更新しました${failed ? `（読めなかった求人 ${failed}件）` : ''}。\n管理画面で「再読み込み」を押すと反映されます。`;
+  }
+
   try {
-    const msg = SRC === 'HRMOS' ? await runHrmos() : SRC === 'HERP' ? await runHerp() : SRC === 'PERSONA' ? await runPersona() : SRC === 'JOBCAN' ? await runJobcan() : SRC === 'SONAR' ? await runSonar() : SRC === 'RIKUNABI' ? await runRikunabi() : await runTalentio();
+    const msg = SRC === 'HRMOS' ? await runHrmos() : SRC === 'HERP' ? await runHerp() : SRC === 'PERSONA' ? await runPersona() : SRC === 'JOBCAN' ? await runJobcan() : SRC === 'SONAR' ? await runSonar() : SRC === 'RIKUNABI' ? await runRikunabi() : SRC === 'GEEKLY' ? await runGeekly() : await runTalentio();
     ui('更新が終わりました', msg, 100, true);
   } catch (e) {
     ui('更新できませんでした', String(e && e.message || e), null, true);
