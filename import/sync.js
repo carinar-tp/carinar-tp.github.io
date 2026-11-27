@@ -138,8 +138,8 @@ function classifyJob(title, sub, company) {
   if (window.__jobsyncRunning) { ui('求人の更新', 'すでに実行中です。終わるまでお待ちください。', null, false); return; }
   if (!CFG.exec || !CFG.key) { ui('求人の更新', 'ブックマークの設定が正しくありません。管理画面の「HRMOS・Talentio更新」から登録し直してください。', null, true); return; }
   const host = location.host;
-  const SRC = /hrmos\.co$/.test(host) && location.pathname.startsWith('/agent') ? 'HRMOS' : /talentio\.com$/.test(host) ? 'TALENTIO' : /^agent\.herp\.cloud$/.test(host) ? 'HERP' : /(^|\.)agent\.persona-ats\.com$/.test(host) ? 'PERSONA' : /^ats\.jobcan\.jp$/.test(host) ? 'JOBCAN' : /^manager\.snar\.jp$/.test(host) && location.pathname.startsWith('/agent') ? 'SONAR' : /^ats\.hrtech\.rikunabi\.com$/.test(host) && location.pathname.startsWith('/agent') ? 'RIKUNABI' : /^partner\.geekly\.jp$/.test(host) ? 'GEEKLY' : '';
-  if (!SRC) { ui('求人の更新', 'HRMOS・Talentio・HERP・PERSONA・ジョブカン・sonar・リクナビHRTech・ギークリーのエージェント画面（ログイン後）で押してください。', null, true); return; }
+  const SRC = /hrmos\.co$/.test(host) && location.pathname.startsWith('/agent') ? 'HRMOS' : /talentio\.com$/.test(host) ? 'TALENTIO' : /^agent\.herp\.cloud$/.test(host) ? 'HERP' : /(^|\.)agent\.persona-ats\.com$/.test(host) ? 'PERSONA' : /^ats\.jobcan\.jp$/.test(host) ? 'JOBCAN' : /^manager\.snar\.jp$/.test(host) && location.pathname.startsWith('/agent') ? 'SONAR' : /^ats\.hrtech\.rikunabi\.com$/.test(host) && location.pathname.startsWith('/agent') ? 'RIKUNABI' : /^partner\.geekly\.jp$/.test(host) ? 'GEEKLY' : /(^|\.)career-cloud\.asia$/.test(host) && location.pathname.startsWith('/mid/employment-agency') ? 'KANRI' : '';
+  if (!SRC) { ui('求人の更新', 'HRMOS・Talentio・HERP・PERSONA・ジョブカン・sonar・リクナビHRTech・ギークリー・かんりくんのエージェント画面（ログイン後）で押してください。', null, true); return; }
   window.__jobsyncRunning = true;
 
   const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -927,8 +927,98 @@ function classifyJob(title, sub, company) {
     return `ギークリーの求人を ${f.n}件 に更新しました${failed ? `（読めなかった求人 ${failed}件）` : ''}。\n管理画面で「再読み込み」を押すと反映されます。`;
   }
 
+  // ===== 採用一括かんりくん（紹介会社画面）：連携済み企業を順に読み、募集中の求人を全件作り直す =====
+  async function runKanri() {
+    const T = 'かんりくんの求人を更新中';
+    const H = ['Id','Account_Text__c','JobName__c','JobType__c','JobTypeDetails__c','JobSituation__c','EmploymentStatus__c','WorkLocation__c','Address__c',
+      'AnnualIncomeLowerLimit__c','AnnualIncomMaxLimit__c','CompensationSystemDetails__c','BusinessContents__c','AdoptionElements__c',
+      'WorkingTime__c','HolidayVacation__c','WelfareOfficer__c','RemoteWork__c','InformationUpdateDate__c',
+      'かんりくん_部署','かんりくん_職種','かんりくん_募集終了日','かんりくん_求人URL','取込日'];
+    const API = '/mid/employment-agency/api/';
+    const getJson = async path => {
+      for (let a = 1; a <= 3; a++) {
+        const r = await fetch(API + path, { credentials: 'include', headers: { Accept: 'application/json' } });
+        if (r.status === 401 || r.status === 403) throw new Error('かんりくんにログインしていないようです。ログインしてからもう一度押してください。');
+        if (r.ok && (r.headers.get('content-type') || '').includes('json')) return r.json();
+        if (a === 3) throw new Error(`かんりくんの求人が読めませんでした（${r.status}）。少し待ってからもう一度押してください。`);
+        await sleep(2000 * a);
+      }
+    };
+    // 連携済み企業は画面上部の「連携済み企業を選択」から取る
+    const sel = [...document.querySelectorAll('select')].find(x => [...x.options].some(o => /連携済み企業/.test(o.textContent)));
+    const companies = sel ? [...sel.options].filter(o => /^\d+$/.test(o.value)).map(o => ({ id: o.value, name: o.textContent.trim() })) : [];
+    if (!companies.length) throw new Error('連携済み企業が見つかりませんでした。かんりくんの画面（ログイン後、上に「連携済み企業を選択」がある画面）で押してください。');
+    const yen = (n, u) => { n = parseFloat(String(n).replace(/,/g, '')); if (!n) return ''; return Math.round(/万/.test(u || '') || n < 10000 ? n * 10000 : n); };
+    const salary = txt => {
+      const t = String(txt || '').normalize('NFKC');
+      let m = t.match(/年収[^\d\n]{0,8}([\d,.]+)\s*(万円|万|円)?\s*[~〜～\-ー－]\s*([\d,.]+)\s*(万円|万|円)?/);
+      if (m) return [yen(m[1], m[2] || m[4]), yen(m[3], m[4])];
+      m = t.match(/年収[^\d\n]{0,8}([\d,.]+)\s*(万円|万|円)/);
+      if (m) return [yen(m[1], m[2]), ''];
+      m = t.match(/(?:^|[^月時日\d,.])([\d,.]{3,})\s*(万円|万)?\s*[~〜～\-ー－]\s*([\d,.]{3,})\s*(万円|万)/);
+      return m && !/月給|月額|時給/.test(t.slice(Math.max(0, m.index - 10), m.index + 2)) && yen(m[1], m[2] || m[4]) >= 2000000 ? [yen(m[1], m[2] || m[4]), yen(m[3], m[4])] : ['', ''];
+    };
+    const CITY = { 名古屋: '愛知県', 横浜: '神奈川県', 川崎: '神奈川県', 札幌: '北海道', 仙台: '宮城県', 神戸: '兵庫県', 博多: '福岡県', 那覇: '沖縄県', 梅田: '大阪府', 難波: '大阪府' };
+    const toPref = t => {
+      t = String(t || '');
+      const hit = PREFS.filter(p => t.includes(p));
+      const u = t.replace(/東京/g, '〓');
+      const loose = PREFS.filter(p => { const b = p.replace(/[都府県]$/, ''); return p === '東京都' ? t.includes('東京') : p === '北海道' ? false : b.length >= 2 && u.includes(b); });
+      return [...new Set(hit.concat(loose, Object.keys(CITY).filter(k => t.includes(k)).map(k => CITY[k])))];
+    };
+    const toRow = (job, detail) => {
+      const f = {};
+      (detail || []).forEach(x => { const k = String(x.label || '').trim(); if (k && !(k in f)) f[k] = md(String(x.value == null ? '' : x.value)); });
+      const used = new Set(['会社名', '求人タイトル', '担当者', '募集開始日時', '募集終了日時']);
+      const get = k => { used.add(k); return (f[k] || '').trim(); };
+      const lab = k => { const v = get(k); return v ? `【${k}】\n${v}` : ''; };
+      const join = a => a.filter(String).join('\n\n');
+      const area = get('エリア'), loc = get('勤務地'), pay = get('報酬（給与など）');
+      const v = {
+        Id: 'KR-' + job.id, Account_Text__c: f['会社名'] || job.companyName || '', JobName__c: f['求人タイトル'] || job.jobName || '', JobSituation__c: '採用中',
+        EmploymentStatus__c: get('雇用形態'), Address__c: join([area ? `エリア：${area}` : '', loc]),
+        CompensationSystemDetails__c: pay,
+        AdoptionElements__c: join([lab('応募資格'), lab('必要スキル・経験'), lab('歓迎するスキル・経験'), lab('求める人物像')]),
+        WorkingTime__c: get('勤務時間'), HolidayVacation__c: get('休日休暇'), WelfareOfficer__c: join([get('福利厚生'), lab('待遇')]),
+        InformationUpdateDate__c: String(f['募集開始日時'] || '').slice(0, 10).replace(/-/g, '/'),
+        'かんりくん_部署': get('部署'), 'かんりくん_職種': get('職種'), 'かんりくん_募集終了日': String(f['募集終了日時'] || '').slice(0, 10).replace(/-/g, '/'),
+        'かんりくん_求人URL': location.origin + '/mid/employment-agency/jobs/info/' + job.id, '取込日': today,
+      };
+      v.BusinessContents__c = join([get('仕事内容'), lab('募集要項')].concat(Object.keys(f).filter(k => !used.has(k)).map(lab)));
+      v.WorkLocation__c = toPref(area + '\n' + loc).join(';');
+      const remoteTxt = [v.JobName__c, v.Address__c, v.WorkingTime__c, v.BusinessContents__c].join(' ');
+      v.RemoteWork__c = /フルリモート|完全在宅|フル在宅/.test(remoteTxt) ? 'フルリモート可' : /リモート|在宅/.test(remoteTxt) && !/(リモート|在宅)(不可|なし)/.test(remoteTxt) ? '一部リモート可' : '';
+      [v.AnnualIncomeLowerLimit__c, v.AnnualIncomMaxLimit__c] = salary(pay);
+      [v.JobType__c, v.JobTypeDetails__c] = classifyJob(v.JobName__c, v['かんりくん_職種'], v.Account_Text__c);
+      return H.map(h => String(v[h] == null ? '' : v[h]).slice(0, 45000));
+    };
+    const enc = encodeURIComponent;
+    const rows = [];
+    let failed = 0;
+    for (let i = 0; i < companies.length; i++) {
+      const c = companies[i];
+      ui(T, `かんりくんから読み込み中… ${i + 1} / ${companies.length}社（求人 ${rows.length}件）`, i / companies.length * 80);
+      const list = (await getJson(`jobs?area=&jobName=&jobCategory=&status=${enc('募集中')}&sortField=${enc('求人タイトル')}&sortOrder=${enc('昇順')}&selectedCompanyId=${enc(c.id)}`)).data || [];
+      for (const job of list) {
+        try { rows.push(toRow(Object.assign({ companyName: c.name }, job), ((await getJson('jobs/' + enc(job.id))).data || {}).detail)); }
+        catch (e) { if (/ログイン/.test(String(e && e.message))) throw e; failed++; }
+        await sleep(150);
+      }
+    }
+    if (!rows.length) throw new Error('募集中の求人が1件も読めませんでした。');
+    window.__kanriRows = { H, rows }; // 確認用
+    if (CFG.dryRun) return `（試運転）かんりくんの求人 ${rows.length}件 を読みました。シートには書き込んでいません。`;
+    await post({ stage: 'start', headers: H });
+    for (let i = 0; i < rows.length; i += 200) {
+      const d = await post({ stage: 'rows', rows: rows.slice(i, i + 200) });
+      ui(T, `シートに書き込み中… ${d.n} / ${rows.length}件`, 80 + d.n / rows.length * 20);
+    }
+    const f = await post({ stage: 'finish', expect: rows.length });
+    return `かんりくんの求人を ${f.n}件 に更新しました（${companies.length}社${failed ? `・読めなかった求人 ${failed}件` : ''}）。\n管理画面で「再読み込み」を押すと反映されます。`;
+  }
+
   try {
-    const msg = SRC === 'HRMOS' ? await runHrmos() : SRC === 'HERP' ? await runHerp() : SRC === 'PERSONA' ? await runPersona() : SRC === 'JOBCAN' ? await runJobcan() : SRC === 'SONAR' ? await runSonar() : SRC === 'RIKUNABI' ? await runRikunabi() : SRC === 'GEEKLY' ? await runGeekly() : await runTalentio();
+    const msg = SRC === 'HRMOS' ? await runHrmos() : SRC === 'HERP' ? await runHerp() : SRC === 'PERSONA' ? await runPersona() : SRC === 'JOBCAN' ? await runJobcan() : SRC === 'SONAR' ? await runSonar() : SRC === 'RIKUNABI' ? await runRikunabi() : SRC === 'GEEKLY' ? await runGeekly() : SRC === 'KANRI' ? await runKanri() : await runTalentio();
     ui('更新が終わりました', msg, 100, true);
   } catch (e) {
     ui('更新できませんでした', String(e && e.message || e), null, true);
